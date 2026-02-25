@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Slidev
+.vite-inspect
+.remote-assets
+components.d.ts
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*.swo
+*~
+
+# Local env
+*.local
+
+textbook/
