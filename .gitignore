@@ -40,5 +40,7 @@ Thumbs.db
 *.log
 npm-debug.log*
 
-# Textbook
+# Textbook, testbank, illustrations
 textbook/
+testbank/
+illustrations/
