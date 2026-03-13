@@ -16,9 +16,11 @@ __pycache__/
 .remote-assets
 components.d.ts
 
-# PDF (ignore general PDFs but keep slides PDFs)
+# PDF (ignore general PDFs but keep slides and homework PDFs)
 *.pdf
 !slides/**/*.pdf
+!homeworks/**/*.pdf
+!syllabus/**/*.pdf
 
 # OS
 .DS_Store
