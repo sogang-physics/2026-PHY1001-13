@@ -489,9 +489,8 @@ function step(dt) {
 
   if (ke < 0) {
     // Ball doesn't have enough energy to reach this height
-    // It should stop and reverse
     ke = 0;
-    ballSpeed = -ballSpeed * 0.01; // tiny nudge back
+    ballSpeed = 0;
   }
 
   const speed = Math.sqrt(2 * ke / m);
@@ -541,8 +540,8 @@ function step(dt) {
   const newKE = newMechE - newPE;
 
   if (newKE < 0) {
-    // Can't reach that height, reverse direction
-    ballSpeed = -ballSpeed * 0.5;
+    // Can't reach that height; let gravity decelerate naturally
+    ballSpeed = 0;
     // Don't update position
     return;
   }

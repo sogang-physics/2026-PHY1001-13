@@ -479,7 +479,7 @@ function togglePlay() {
   playing = true;
   document.getElementById('btnPlay').style.display = 'none';
   document.getElementById('btnPause').style.display = '';
-  if (!animId) loop();
+  if (!animId) animId = requestAnimationFrame(loop);
 }
 function togglePause() {
   playing = false;
@@ -1000,7 +1000,11 @@ function loop(timestamp) {
   } else {
     lastTimestamp = null;
   }
-  animId = requestAnimationFrame(loop);
+  if (playing) {
+    animId = requestAnimationFrame(loop);
+  } else {
+    animId = null;
+  }
 }
 
 // ===================== Init =====================

@@ -307,7 +307,7 @@ const ctx = canvas.getContext('2d');
 const eCanvas = document.getElementById('energyCanvas');
 const ectx = eCanvas.getContext('2d');
 
-const g = 9.81;
+const g = 9.8;
 
 const objects = [
   { id: 'disk',    name: '원판',       c: 0.5,     color: '#4CAF50', chk: 'chkDisk' },
@@ -356,6 +356,7 @@ function initRacers() {
 function reset() {
   state.running = false;
   state.paused = false;
+  document.getElementById('btnPause').textContent = '⏸ 일시정지';
   initRacers();
   updateFormulaBox();
   updateRankingDisplay();
@@ -378,6 +379,7 @@ function start() {
 
 function pause() {
   state.paused = !state.paused;
+  document.getElementById('btnPause').textContent = state.paused ? '▶ 재개' : '⏸ 일시정지';
 }
 
 function race() {

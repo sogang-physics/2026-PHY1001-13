@@ -514,7 +514,7 @@ function animate(ts) {
     const maxDispMeters = maxDisp / pixPerMeter;
     if (Math.abs(displacement) >= maxDispMeters) {
       displacement = Math.sign(displacement) * maxDispMeters;
-      velocity = 0;
+      // Keep the final velocity for display (don't zero it out)
       stopped = true;
     }
   }

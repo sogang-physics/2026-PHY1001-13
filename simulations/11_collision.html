@@ -409,12 +409,19 @@ function reset() {
   document.getElementById('btnPause').style.display = 'none';
   trails1 = []; trails2 = [];
 
-  if (mode === '1d') {
-    document.getElementById('controlsContent').innerHTML = buildControls1D();
-  } else {
-    document.getElementById('controlsContent').innerHTML = buildControls2D();
+  // Only rebuild controls if mode changed or controls are empty
+  var controlsContent = document.getElementById('controlsContent');
+  var needsRebuild = !controlsContent.hasChildNodes() ||
+    (mode === '1d' && !document.getElementById('sl_v2')) ||
+    (mode === '2d' && !document.getElementById('sl_b'));
+  if (needsRebuild) {
+    if (mode === '1d') {
+      controlsContent.innerHTML = buildControls1D();
+    } else {
+      controlsContent.innerHTML = buildControls2D();
+    }
+    bindSliders();
   }
-  bindSliders();
   initState();
   draw();
   updateInfo();

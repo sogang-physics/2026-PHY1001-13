@@ -806,10 +806,16 @@ document.getElementById('btnReset').addEventListener('click', resetSim);
 function setupCanvas(c) {
   const dpr = window.devicePixelRatio || 1;
   const rect = c.getBoundingClientRect();
-  // Keep logical size from HTML attributes
+  c.width = rect.width * dpr;
+  c.height = rect.height * dpr;
+  const context = c.getContext('2d');
+  context.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return context;
 }
 
 // Init
+setupCanvas(canvas);
+setupCanvas(graphCanvas);
 updateDisplays();
 resetSim();
 </script>
