@@ -131,10 +131,6 @@ const eraserSizes = [
         <button id="btn-scratch" class="ctrl-btn" title="스크래치 패드 (S)">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 3v18"/></svg>
         </button>
-        <!-- Fullscreen -->
-        <button id="btn-fullscreen" class="ctrl-btn" title="전체화면 (F)">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 00-2 2v3"/><path d="M21 8V5a2 2 0 00-2-2h-3"/><path d="M3 16v3a2 2 0 002 2h3"/><path d="M16 21h3a2 2 0 002-2v-3"/></svg>
-        </button>
       </div>
 
       <!-- Right: title -->
@@ -174,6 +170,76 @@ const eraserSizes = [
 
 <script>
   document.addEventListener('DOMContentLoaded', () => {
+    // --- IndexedDB persistence ---
+    const DB_NAME = 'slide-drawings';
+    const DB_VERSION = 1;
+    const STORE_NAME = 'canvases';
+    const lectureKey = window.location.pathname;
+    let db: IDBDatabase | null = null;
+
+    function openDB(): Promise<IDBDatabase> {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, DB_VERSION);
+        req.onupgradeneeded = () => {
+          req.result.createObjectStore(STORE_NAME);
+        };
+        req.onsuccess = () => { db = req.result; resolve(db); };
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    function dbPut(key: string, value: string): void {
+      if (!db) return;
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      tx.objectStore(STORE_NAME).put(value, key);
+    }
+
+    function dbGet(key: string): Promise<string | undefined> {
+      return new Promise((resolve) => {
+        if (!db) { resolve(undefined); return; }
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const req = tx.objectStore(STORE_NAME).get(key);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(undefined);
+      });
+    }
+
+    function dbDelete(key: string): void {
+      if (!db) return;
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      tx.objectStore(STORE_NAME).delete(key);
+    }
+
+    // Debounced persist
+    const persistTimers: Map<string, number> = new Map();
+    function persistCanvas(key: string, cvs: HTMLCanvasElement) {
+      const dataUrl = cvs.toDataURL('image/png'); // capture immediately
+      const timerId = persistTimers.get(key);
+      if (timerId) clearTimeout(timerId);
+      persistTimers.set(key, window.setTimeout(() => {
+        dbPut(key, dataUrl);
+        persistTimers.delete(key);
+      }, 300));
+    }
+
+    function drawKey(slideIndex: number) { return `${lectureKey}:slide:${slideIndex}`; }
+    function scratchKey(pageIndex: number) { return `${lectureKey}:scratch:${pageIndex}`; }
+    function scratchMetaKey() { return `${lectureKey}:scratch:meta`; }
+
+    function loadImageToCanvas(dataUrl: string, cvs: HTMLCanvasElement, context: CanvasRenderingContext2D): Promise<void> {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const dpr = window.devicePixelRatio || 1;
+          context.clearRect(0, 0, cvs.width / dpr, cvs.height / dpr);
+          context.drawImage(img, 0, 0, cvs.width / dpr, cvs.height / dpr);
+          resolve();
+        };
+        img.onerror = () => resolve();
+        img.src = dataUrl;
+      });
+    }
+
     const slidesEl = document.querySelectorAll<HTMLDivElement>('.slide');
     const counter = document.getElementById('slide-counter')!;
     const canvas = document.getElementById('draw-canvas') as HTMLCanvasElement;
@@ -231,6 +297,7 @@ const eraserSizes = [
 
     function saveDrawing() {
       drawingData.set(current, ctx.getImageData(0, 0, canvas.width, canvas.height));
+      persistCanvas(drawKey(current), canvas);
     }
 
     function restoreDrawing() {
@@ -239,12 +306,16 @@ const eraserSizes = [
         ctx.putImageData(data, 0, 0);
       } else {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Try loading from IndexedDB
+        dbGet(drawKey(current)).then(async (dataUrl) => {
+          if (dataUrl) {
+            await loadImageToCanvas(dataUrl, canvas, ctx);
+            drawingData.set(current, ctx.getImageData(0, 0, canvas.width, canvas.height));
+          }
+        });
       }
     }
 
-    document.addEventListener('fullscreenchange', () => {
-      setTimeout(() => resizeCanvas(), 100);
-    });
 
     // --- Scratch pad ---
     const scratchPad = document.getElementById('scratch-pad')!;
@@ -268,6 +339,8 @@ const eraserSizes = [
 
     function scratchSavePage() {
       scratchPages.set(scratchCurrentPage, scratchCtx.getImageData(0, 0, scratchCanvas.width, scratchCanvas.height));
+      persistCanvas(scratchKey(scratchCurrentPage), scratchCanvas);
+      dbPut(scratchMetaKey(), JSON.stringify({ totalPages: scratchTotalPages }));
     }
 
     function scratchRestorePage() {
@@ -276,6 +349,12 @@ const eraserSizes = [
         scratchCtx.putImageData(data, 0, 0);
       } else {
         scratchCtx.clearRect(0, 0, scratchCanvas.width, scratchCanvas.height);
+        dbGet(scratchKey(scratchCurrentPage)).then(async (dataUrl) => {
+          if (dataUrl) {
+            await loadImageToCanvas(dataUrl, scratchCanvas, scratchCtx);
+            scratchPages.set(scratchCurrentPage, scratchCtx.getImageData(0, 0, scratchCanvas.width, scratchCanvas.height));
+          }
+        });
       }
     }
 
@@ -340,9 +419,9 @@ const eraserSizes = [
         const [cx, cy] = ('touches' in e) ? [e.touches[0].clientX, e.touches[0].clientY] : [(e as MouseEvent).clientX, (e as MouseEvent).clientY];
         updateEraserCursor(cx, cy);
       }
-      scratchCtx.beginPath();
-      scratchCtx.moveTo(scratchLastX, scratchLastY);
-      scratchCtx.lineTo(x, y);
+      const midX = (scratchLastX + x) / 2;
+      const midY = (scratchLastY + y) / 2;
+
       if (drawMode === 'pen') {
         scratchCtx.strokeStyle = scratchColor;
         scratchCtx.lineWidth = 3;
@@ -354,8 +433,11 @@ const eraserSizes = [
       }
       scratchCtx.lineCap = 'round';
       scratchCtx.lineJoin = 'round';
+      scratchCtx.beginPath();
+      scratchCtx.moveTo(scratchLastX, scratchLastY);
+      scratchCtx.quadraticCurveTo(scratchLastX, scratchLastY, midX, midY);
       scratchCtx.stroke();
-      [scratchLastX, scratchLastY] = [x, y];
+      [scratchLastX, scratchLastY] = [midX, midY];
     }
 
     function scratchStop() {
@@ -566,9 +648,8 @@ const eraserSizes = [
       const [cx, cy] = getClientPos(e);
       updateEraserCursor(cx, cy);
 
-      ctx.beginPath();
-      ctx.moveTo(lastX, lastY);
-      ctx.lineTo(x, y);
+      const midX = (lastX + x) / 2;
+      const midY = (lastY + y) / 2;
 
       if (drawMode === 'pen') {
         ctx.strokeStyle = penColor;
@@ -582,8 +663,11 @@ const eraserSizes = [
 
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(lastX, lastY);
+      ctx.quadraticCurveTo(lastX, lastY, midX, midY);
       ctx.stroke();
-      [lastX, lastY] = [x, y];
+      [lastX, lastY] = [midX, midY];
     }
 
     function stopDraw() {
@@ -601,11 +685,7 @@ const eraserSizes = [
     document.addEventListener('keydown', (e) => {
       if (e.key === 'ArrowRight' || e.key === ' ') { next(); e.preventDefault(); }
       else if (e.key === 'ArrowLeft') { prev(); e.preventDefault(); }
-      else if (e.key === 'f' || e.key === 'F') {
-        if (document.fullscreenElement) document.exitFullscreen();
-        else document.documentElement.requestFullscreen({ navigationUI: 'hide' });
-      }
-      else if (e.key === 'd' || e.key === 'D') {
+else if (e.key === 'd' || e.key === 'D') {
         if (drawMode === 'pen') showPenColors();
         else setMode('pen');
       }
@@ -698,10 +778,6 @@ const eraserSizes = [
       }
     }, { passive: true });
 
-    // Prevent Chrome fullscreen swipe-down-to-exit
-    mainArea.addEventListener('touchmove', (e) => {
-      if (document.fullscreenElement) e.preventDefault();
-    }, { passive: false });
 
     // Buttons
     document.getElementById('btn-prev')!.addEventListener('click', prev);
@@ -725,11 +801,6 @@ const eraserSizes = [
         saveDrawing();
       }
     });
-    document.getElementById('btn-fullscreen')!.addEventListener('click', () => {
-      if (document.fullscreenElement) document.exitFullscreen();
-      else document.documentElement.requestFullscreen({ navigationUI: 'hide' });
-    });
-
     // Close popup on outside click
     document.addEventListener('click', (e) => {
       const target = e.target as Node;
@@ -793,6 +864,23 @@ const eraserSizes = [
     setEraserSize(30);
     counter.textContent = `1 / ${total}`;
     setPenColor('#ef4444');
+
+    // Restore drawings from IndexedDB
+    openDB().then(async () => {
+      // Restore current slide drawing
+      const data = await dbGet(drawKey(current));
+      if (data) await loadImageToCanvas(data, canvas, ctx);
+      saveDrawing();
+
+      // Restore scratch pad metadata
+      const meta = await dbGet(scratchMetaKey());
+      if (meta) {
+        try {
+          const parsed = JSON.parse(meta);
+          scratchTotalPages = parsed.totalPages || 1;
+        } catch {}
+      }
+    }).catch(() => {});
 
     // KaTeX rendering
     const renderMath = () => {
