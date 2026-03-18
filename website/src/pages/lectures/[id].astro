@@ -31,9 +31,21 @@ const slides = await Promise.all(
     // Check for special directives
     const blankMatch = md.match(/<!--\s*blank\s*-->/);
     if (blankMatch) {
-      const label = md.replace(/<!--\s*blank\s*-->/, '').trim();
-      return `<div class="flex items-center justify-center h-full w-full">
-        <p class="text-white/20 text-2xl">${label || '판서'}</p>
+      const content = md.replace(/<!--\s*blank\s*-->/, '').trim();
+      if (!content) {
+        return `<div class="flex items-center justify-center h-full w-full">
+          <p class="text-gray-300 text-2xl font-semibold">판서</p>
+        </div>`;
+      }
+      // Render markdown content for the blank page (shown at top)
+      const mathBlocks: string[] = [];
+      const esc = content
+        .replace(/\$\$[\s\S]*?\$\$/g, (m) => { mathBlocks.push(m); return `%%MATH${mathBlocks.length - 1}%%`; })
+        .replace(/\$[^$\n]+?\$/g, (m) => { mathBlocks.push(m); return `%%MATH${mathBlocks.length - 1}%%`; });
+      let rendered = String(await marked.parse(esc));
+      rendered = rendered.replace(/%%MATH(\d+)%%/g, (_, i) => mathBlocks[parseInt(i)]);
+      return `<div class="w-full h-full flex flex-col" data-blank="true">
+        <div class="slide-content px-4 pt-2 pb-1 border-b border-gray-200" style="font-size:0.95rem">${rendered}</div>
       </div>`;
     }
 
@@ -47,7 +59,26 @@ const slides = await Promise.all(
       </div>`;
     }
 
-    return String(await marked.parse(md));
+    // Protect LaTeX math from markdown parsing:
+    // Replace $...$ and $$...$$ with placeholders before marked processes them
+    const mathBlocks: string[] = [];
+    const escaped = md
+      .replace(/\$\$[\s\S]*?\$\$/g, (m) => {
+        mathBlocks.push(m);
+        return `%%MATH${mathBlocks.length - 1}%%`;
+      })
+      .replace(/\$[^$\n]+?\$/g, (m) => {
+        mathBlocks.push(m);
+        return `%%MATH${mathBlocks.length - 1}%%`;
+      });
+
+    let html = String(await marked.parse(escaped));
+
+    // Restore math blocks
+    html = html.replace(/%%MATH(\d+)%%/g, (_, i) => mathBlocks[parseInt(i)]);
+
+    // Prepend base URL to absolute image paths
+    return html.replace(/src="\/img\//g, `src="${base}img/`);
   })
 );
 ---

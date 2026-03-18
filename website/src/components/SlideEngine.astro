@@ -3,7 +3,7 @@
  * SlideEngine: 마크다운 기반 프레젠테이션 엔진
  * - 방향키/스와이프 네비게이션, 풀스크린
  * - 판서 캔버스 (펜 색상 선택, 지우개 사이즈, 슬라이드별 저장)
- * - 스크래치 패드 (임시 필기용, 토글)
+ * - 스크래치 패드 (메인 콘텐츠 영역에서 floating)
  * - KaTeX 수식 렌더링
  *
  * 특수 슬라이드: <!-- blank -->, <!-- sim:파일명.html -->
@@ -17,8 +17,9 @@ const { title, slides } = Astro.props;
 const base = import.meta.env.BASE_URL;
 
 const penColors = [
-  { color: '#facc15', label: '노랑' },
   { color: '#ef4444', label: '빨강' },
+  { color: '#1a1a1a', label: '검정' },
+  { color: '#facc15', label: '노랑' },
   { color: '#22d3ee', label: '시안' },
   { color: '#4ade80', label: '초록' },
   { color: '#ffffff', label: '흰색' },
@@ -31,13 +32,14 @@ const eraserSizes = [
 ];
 ---
 
-<div id="slide-app">
-  <div id="slide-viewport" class="fixed inset-0 select-none">
+<div id="slide-app" class="fixed inset-0 flex flex-col select-none" style="height: 100%; max-height: -webkit-fill-available;">
+  <!-- Main content area (everything above toolbar) -->
+  <div id="main-area" class="flex-1 relative overflow-hidden">
     <!-- Slides -->
     <div id="slides-container">
       {slides.map((html, i) => (
         <div
-          class="slide absolute inset-0 flex items-center justify-center p-12"
+          class="slide absolute inset-0 flex items-center justify-center p-8"
           data-index={i}
           style={i === 0 ? '' : 'display:none'}
         >
@@ -46,127 +48,97 @@ const eraserSizes = [
       ))}
     </div>
 
-    <!-- Drawing canvas overlay -->
+    <!-- Drawing canvas overlay (fills main area only) -->
     <canvas
       id="draw-canvas"
       class="absolute inset-0 w-full h-full"
-      style="pointer-events: none; z-index: 10;"
+      style="pointer-events: none; z-index: 10; touch-action: none;"
     ></canvas>
 
-    <!-- Eraser cursor (follows mouse when erasing) -->
-    <div id="eraser-cursor" class="fixed rounded-full border-2 border-[#8B0029]/40 pointer-events-none hidden" style="z-index: 11;"></div>
+    <!-- Eraser cursor -->
+    <div id="eraser-cursor" class="fixed rounded-full border-2 border-[#8B0029]/40 pointer-events-none hidden" style="z-index: 50;"></div>
 
-    <!-- Scratch pad overlay -->
-    <div id="scratch-pad" class="fixed inset-0 hidden flex items-center justify-center" style="z-index: 40;">
-      <div class="absolute inset-0 bg-black/60" id="scratch-backdrop"></div>
-      <div class="relative bg-white rounded-2xl shadow-2xl border border-[#8B0029]/30 overflow-hidden" style="width: 90%; height: 90%;">
-        <canvas id="scratch-canvas" class="absolute inset-0 w-full h-full"></canvas>
+    <!-- Scratch pad (floating in main area) -->
+    <div id="scratch-pad" class="absolute inset-0 hidden" style="z-index: 20;">
+      <div class="absolute inset-0 bg-black/40" id="scratch-backdrop"></div>
+      <div class="absolute bg-white rounded-2xl shadow-2xl border border-[#8B0029]/30 overflow-hidden" style="left:5%;right:5%;top:4%;bottom:4%;">
+        <canvas id="scratch-canvas" class="absolute inset-0 w-full h-full" style="touch-action: none;"></canvas>
         <!-- Top-left: label + page nav -->
-        <div class="absolute top-3 left-3 flex items-center gap-2 bg-white/90 backdrop-blur rounded-full px-3 py-1.5 border border-[#8B0029]/30">
+        <div class="absolute top-3 left-3 flex items-center gap-2 bg-white/90 backdrop-blur rounded-full px-3 py-1.5 border border-[#8B0029]/30" style="z-index: 2;">
           <span class="w-2 h-2 rounded-full bg-[#8B0029]"></span>
           <span class="text-[#8B0029]/70 text-xs">스크래치</span>
           <div class="w-px h-4 bg-[#8B0029]/20"></div>
-          <button id="scratch-prev" class="text-[#8B0029]/40 hover:text-white text-xs px-1">◀</button>
+          <button id="scratch-prev" class="text-[#8B0029]/40 hover:text-[#8B0029] text-xs px-1">◀</button>
           <span id="scratch-counter" class="text-[#8B0029]/50 text-xs font-mono min-w-[2rem] text-center">1/1</span>
-          <button id="scratch-next" class="text-[#8B0029]/40 hover:text-white text-xs px-1">▶</button>
-          <button id="scratch-add" class="text-[#8B0029]/40 hover:text-white text-xs px-1" title="새 페이지">+</button>
-        </div>
-        <!-- Top-right: tools -->
-        <div class="absolute top-3 right-3 flex items-center gap-0.5 bg-white/90 backdrop-blur rounded-xl px-1 py-1 border border-[#8B0029]/30">
-          <!-- Scratch pen -->
-          <button id="scratch-pen" class="ctrl-btn ctrl-btn-sm active relative" title="펜">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>
-            <span id="scratch-pen-dot" class="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-white" style="background: #facc15;"></span>
-          </button>
-          <!-- Scratch eraser -->
-          <button id="scratch-eraser" class="ctrl-btn ctrl-btn-sm" title="지우개">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 20H7L3 16c-.8-.8-.8-2 0-2.8L14.6 1.6c.8-.8 2-.8 2.8 0L21.4 5.6c.8.8.8 2 0 2.8L12 18"/><path d="M6 12l6 6"/></svg>
-          </button>
-          <div class="w-px h-5 bg-[#8B0029]/20 mx-1"></div>
-          <!-- Clear page -->
-          <button id="scratch-clear" class="ctrl-btn ctrl-btn-sm" title="이 페이지 지우기">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M5 6v14a2 2 0 002 2h10a2 2 0 002-2V6"/></svg>
-          </button>
-          <!-- Close -->
-          <button id="scratch-close" class="ctrl-btn ctrl-btn-sm" title="닫기 (S)">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>
-          </button>
+          <button id="scratch-next" class="text-[#8B0029]/40 hover:text-[#8B0029] text-xs px-1">▶</button>
+          <button id="scratch-add" class="text-[#8B0029]/40 hover:text-[#8B0029] text-xs px-1" title="새 페이지">+</button>
         </div>
       </div>
     </div>
 
     <!-- Popup: pen colors / eraser sizes -->
-    <div id="tool-popup" class="absolute z-30 hidden" style="bottom: 52px;">
-      <div id="tool-popup-inner" class="bg-white/90 backdrop-blur rounded-xl px-3 py-2 shadow-xl border border-[#8B0029]/30">
-        <!-- dynamically filled -->
+    <div id="tool-popup" class="absolute z-30 hidden" style="bottom: 8px;">
+      <div id="tool-popup-inner" class="bg-white/95 backdrop-blur rounded-xl px-3 py-2 shadow-xl border border-[#8B0029]/30">
       </div>
     </div>
 
-    <!-- Thumbnail overview panel -->
-    <div id="thumb-panel" class="fixed inset-0 hidden" style="z-index: 35;">
+    <!-- Thumbnail panel -->
+    <div id="thumb-panel" class="absolute inset-0 hidden" style="z-index: 35;">
       <div class="absolute inset-0 bg-black/40" id="thumb-backdrop"></div>
-      <div class="absolute bottom-14 left-0 right-0 mx-3">
+      <div class="absolute bottom-2 left-0 right-0 mx-3">
         <div id="thumb-strip" class="flex gap-2 overflow-x-auto p-3 bg-white/95 backdrop-blur rounded-2xl shadow-2xl border border-[#8B0029]/20">
-          <!-- thumbnails injected by JS -->
         </div>
       </div>
     </div>
+  </div>
 
-    <!-- Controls bar -->
-    <div id="controls" class="absolute bottom-0 left-0 right-0 z-20">
-      <div class="flex items-center justify-between px-3 py-2 mx-3 mb-2 bg-white/90 backdrop-blur rounded-2xl shadow-xl border border-[#8B0029]/30">
-        <!-- Left: slide nav + drawing tools -->
-        <div class="flex items-center gap-0.5">
-          <button id="btn-prev" class="ctrl-btn" title="이전 (←)">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
-          </button>
-          <button id="slide-counter" class="text-[#8B0029]/50 text-xs font-mono min-w-[3.5rem] text-center hover:text-[#8B0029] cursor-pointer" title="슬라이드 목록"></button>
-          <button id="btn-next" class="ctrl-btn" title="다음 (→)">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
-          </button>
+  <!-- Fixed bottom toolbar -->
+  <div id="controls" class="flex-shrink-0 bg-white border-t border-[#8B0029]/20" style="touch-action: auto;">
+    <div class="flex items-center justify-between px-3 py-1">
+      <!-- Left: nav + tools -->
+      <div class="flex items-center gap-0.5">
+        <button id="btn-prev" class="ctrl-btn" title="이전 (←)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <button id="slide-counter" class="text-[#8B0029]/50 text-xs font-mono min-w-[3.5rem] text-center hover:text-[#8B0029] cursor-pointer" title="슬라이드 목록"></button>
+        <button id="btn-next" class="ctrl-btn" title="다음 (→)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+        </button>
 
-          <div class="w-px h-5 bg-[#8B0029]/20 mx-2"></div>
+        <div class="w-px h-5 bg-[#8B0029]/20 mx-2"></div>
 
-          <!-- Pen -->
-          <button id="btn-pen" class="ctrl-btn relative" title="펜 (D) — 다시 클릭: 색상 선택">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>
-            <span id="pen-color-dot" class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border border-white" style="background: #facc15;"></span>
-          </button>
+        <!-- Cursor -->
+        <button id="btn-cursor" class="ctrl-btn active" title="클릭 모드 (Q)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/><path d="M13 13l6 6"/></svg>
+        </button>
+        <!-- Pen -->
+        <button id="btn-pen" class="ctrl-btn relative" title="펜 (D)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>
+          <span id="pen-color-dot" class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border border-white" style="background: #ef4444;"></span>
+        </button>
+        <!-- Eraser -->
+        <button id="btn-eraser" class="ctrl-btn" title="지우개 (E)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 20H7L3 16c-.8-.8-.8-2 0-2.8L14.6 1.6c.8-.8 2-.8 2.8 0L21.4 5.6c.8.8.8 2 0 2.8L12 18"/><path d="M6 12l6 6"/></svg>
+        </button>
+        <!-- Clear -->
+        <button id="btn-clear" class="ctrl-btn" title="전체 지우기 (C)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M5 6v14a2 2 0 002 2h10a2 2 0 002-2V6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+        </button>
 
-          <!-- Eraser -->
-          <button id="btn-eraser" class="ctrl-btn" title="지우개 (E) — 다시 클릭: 크기 선택">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 20H7L3 16c-.8-.8-.8-2 0-2.8L14.6 1.6c.8-.8 2-.8 2.8 0L21.4 5.6c.8.8.8 2 0 2.8L12 18"/><path d="M6 12l6 6"/></svg>
-          </button>
+        <div class="w-px h-5 bg-[#8B0029]/20 mx-1"></div>
 
-          <!-- Clear -->
-          <button id="btn-clear" class="ctrl-btn" title="전체 지우기 (C)">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M5 6v14a2 2 0 002 2h10a2 2 0 002-2V6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
-          </button>
-
-          <div class="w-px h-5 bg-[#8B0029]/20 mx-1"></div>
-
-          <!-- Scratch pad -->
-          <button id="btn-scratch" class="ctrl-btn" title="스크래치 패드 (S)">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 3v18"/></svg>
-          </button>
-
-          <!-- Fullscreen -->
-          <button id="btn-fullscreen" class="ctrl-btn" title="전체화면 (F)">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 00-2 2v3"/><path d="M21 8V5a2 2 0 00-2-2h-3"/><path d="M3 16v3a2 2 0 002 2h3"/><path d="M16 21h3a2 2 0 002-2v-3"/></svg>
-          </button>
-        </div>
-
-        <!-- Right: title -->
-        <span class="text-white/40 text-xs hidden sm:block truncate max-w-48">{title}</span>
+        <!-- Scratch pad -->
+        <button id="btn-scratch" class="ctrl-btn" title="스크래치 패드 (S)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 3v18"/></svg>
+        </button>
+        <!-- Fullscreen -->
+        <button id="btn-fullscreen" class="ctrl-btn" title="전체화면 (F)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 00-2 2v3"/><path d="M21 8V5a2 2 0 00-2-2h-3"/><path d="M3 16v3a2 2 0 002 2h3"/><path d="M16 21h3a2 2 0 002-2v-3"/></svg>
+        </button>
       </div>
-    </div>
 
-    <!-- Active mode indicator (top-right) -->
-    <div id="mode-indicator" class="absolute top-4 right-4 z-20 hidden">
-      <div class="flex items-center gap-2 bg-white/90 backdrop-blur rounded-full px-3 py-1.5 shadow-lg border border-[#8B0029]/30">
-        <span id="mode-icon" class="w-2.5 h-2.5 rounded-full"></span>
-        <span id="mode-label" class="text-[#8B0029] text-xs font-medium"></span>
-      </div>
+      <!-- Right: title -->
+      <span class="text-[#8B0029]/30 text-xs hidden sm:block truncate max-w-48">{title}</span>
     </div>
   </div>
 </div>
@@ -191,15 +163,6 @@ const eraserSizes = [
     background: rgba(139,0,41,0.15);
     box-shadow: inset 0 0 0 1.5px rgba(139,0,41,0.3);
   }
-  .ctrl-btn-sm {
-    width: 30px;
-    height: 30px;
-    border-radius: 8px;
-  }
-  .scratch-color.selected {
-    border-color: white;
-    transform: scale(1.2);
-  }
   #thumb-strip::-webkit-scrollbar {
     height: 6px;
   }
@@ -215,13 +178,14 @@ const eraserSizes = [
     const counter = document.getElementById('slide-counter')!;
     const canvas = document.getElementById('draw-canvas') as HTMLCanvasElement;
     const ctx = canvas.getContext('2d')!;
+    const mainArea = document.getElementById('main-area')!;
     const total = slidesEl.length;
     let current = 0;
 
     // --- Drawing state ---
     type DrawMode = 'none' | 'pen' | 'eraser';
     let drawMode: DrawMode = 'none';
-    let penColor = '#facc15';
+    let penColor = '#ef4444';
     let eraserSize = 30;
     const drawingData: Map<number, ImageData> = new Map();
     let isDrawing = false;
@@ -231,21 +195,38 @@ const eraserSizes = [
     // --- UI refs ---
     const btnPen = document.getElementById('btn-pen')!;
     const btnEraser = document.getElementById('btn-eraser')!;
+    const btnCursor = document.getElementById('btn-cursor')!;
     const penColorDot = document.getElementById('pen-color-dot')!;
-    const modeIndicator = document.getElementById('mode-indicator')!;
-    const modeIcon = document.getElementById('mode-icon')!;
-    const modeLabel = document.getElementById('mode-label')!;
     const toolPopup = document.getElementById('tool-popup')!;
     const toolPopupInner = document.getElementById('tool-popup-inner')!;
     const eraserCursor = document.getElementById('eraser-cursor')!;
 
     // --- Canvas setup ---
     function resizeCanvas() {
+      const oldWidth = canvas.width;
+      const oldHeight = canvas.height;
+      let tempCanvas: HTMLCanvasElement | null = null;
+      if (oldWidth > 0 && oldHeight > 0) {
+        tempCanvas = document.createElement('canvas');
+        tempCanvas.width = oldWidth;
+        tempCanvas.height = oldHeight;
+        tempCanvas.getContext('2d')!.drawImage(canvas, 0, 0);
+      }
+
       const dpr = window.devicePixelRatio || 1;
       canvas.width = canvas.clientWidth * dpr;
       canvas.height = canvas.clientHeight * dpr;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      restoreDrawing();
+
+      const data = drawingData.get(current);
+      if (data && data.width === canvas.width && data.height === canvas.height) {
+        ctx.putImageData(data, 0, 0);
+      } else if (tempCanvas && oldWidth > 0) {
+        ctx.drawImage(tempCanvas, 0, 0, oldWidth, oldHeight, 0, 0, canvas.width / dpr * dpr, canvas.height / dpr * dpr);
+        saveDrawing();
+      } else {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
     }
 
     function saveDrawing() {
@@ -261,7 +242,6 @@ const eraserSizes = [
       }
     }
 
-    // --- Fullscreen: save/restore on change ---
     document.addEventListener('fullscreenchange', () => {
       setTimeout(() => resizeCanvas(), 100);
     });
@@ -273,19 +253,10 @@ const eraserSizes = [
     const scratchCounter = document.getElementById('scratch-counter')!;
     let scratchOpen = false;
 
-    // Multi-page state
     const scratchPages: Map<number, ImageData> = new Map();
     let scratchCurrentPage = 0;
     let scratchTotalPages = 1;
-
-    // Scratch drawing mode: pen or eraser
-    type ScratchMode = 'pen' | 'eraser';
-    let scratchMode: ScratchMode = 'pen';
-    let scratchColor = '#facc15';
-
-    const scratchPenBtn = document.getElementById('scratch-pen')!;
-    const scratchEraserBtn = document.getElementById('scratch-eraser')!;
-    const scratchPenDot = document.getElementById('scratch-pen-dot')!;
+    let scratchColor = '#ef4444';
 
     function resizeScratchCanvas() {
       const dpr = window.devicePixelRatio || 1;
@@ -320,25 +291,21 @@ const eraserSizes = [
       scratchUpdateCounter();
     }
 
-    function scratchSetMode(mode: ScratchMode) {
-      scratchMode = mode;
-      scratchPenBtn.classList.toggle('active', mode === 'pen');
-      scratchEraserBtn.classList.toggle('active', mode === 'eraser');
-      scratchCanvas.style.cursor = mode === 'pen' ? 'crosshair' : 'cell';
-    }
-
     function toggleScratchPad() {
       scratchOpen = !scratchOpen;
       scratchPad.classList.toggle('hidden', !scratchOpen);
       document.getElementById('btn-scratch')!.classList.toggle('active', scratchOpen);
       if (scratchOpen) {
         resizeScratchCanvas();
-        scratchSetMode('pen');
         scratchUpdateCounter();
       }
     }
 
-    // Scratch drawing
+    function closeScratchPad() {
+      if (scratchOpen) toggleScratchPad();
+    }
+
+    // Scratch drawing — uses main drawMode (pen/eraser)
     let scratchDrawing = false;
     let scratchLastX = 0;
     let scratchLastY = 0;
@@ -350,18 +317,33 @@ const eraserSizes = [
     }
 
     function scratchStart(e: MouseEvent | TouchEvent) {
+      if (drawMode === 'none') return;
+      if (!isStylusTouch(e)) return;
       scratchDrawing = true;
+      onDrawStart();
       [scratchLastX, scratchLastY] = scratchGetPos(e);
+      if (drawMode === 'eraser') {
+        const [cx, cy] = ('touches' in e) ? [e.touches[0].clientX, e.touches[0].clientY] : [(e as MouseEvent).clientX, (e as MouseEvent).clientY];
+        eraserCursor.classList.remove('hidden');
+        updateEraserCursor(cx, cy);
+      }
       e.preventDefault();
     }
+
     function scratchMove(e: MouseEvent | TouchEvent) {
       if (!scratchDrawing) return;
+      if ('touches' in e && !isStylusTouch(e)) { scratchStop(); return; }
       e.preventDefault();
       const [x, y] = scratchGetPos(e);
+      // Update eraser cursor for scratch pad too
+      if (drawMode === 'eraser') {
+        const [cx, cy] = ('touches' in e) ? [e.touches[0].clientX, e.touches[0].clientY] : [(e as MouseEvent).clientX, (e as MouseEvent).clientY];
+        updateEraserCursor(cx, cy);
+      }
       scratchCtx.beginPath();
       scratchCtx.moveTo(scratchLastX, scratchLastY);
       scratchCtx.lineTo(x, y);
-      if (scratchMode === 'pen') {
+      if (drawMode === 'pen') {
         scratchCtx.strokeStyle = scratchColor;
         scratchCtx.lineWidth = 3;
         scratchCtx.globalCompositeOperation = 'source-over';
@@ -375,10 +357,13 @@ const eraserSizes = [
       scratchCtx.stroke();
       [scratchLastX, scratchLastY] = [x, y];
     }
+
     function scratchStop() {
       if (scratchDrawing) {
         scratchDrawing = false;
         scratchSavePage();
+        eraserCursor.classList.add('hidden');
+        onDrawEnd();
       }
     }
 
@@ -392,12 +377,7 @@ const eraserSizes = [
 
     // Scratch pad buttons
     document.getElementById('btn-scratch')!.addEventListener('click', toggleScratchPad);
-    document.getElementById('scratch-close')!.addEventListener('click', toggleScratchPad);
-    document.getElementById('scratch-backdrop')!.addEventListener('click', toggleScratchPad);
-    document.getElementById('scratch-clear')!.addEventListener('click', () => {
-      scratchCtx.clearRect(0, 0, scratchCanvas.width, scratchCanvas.height);
-      scratchSavePage();
-    });
+    document.getElementById('scratch-backdrop')!.addEventListener('click', closeScratchPad);
     document.getElementById('scratch-prev')!.addEventListener('click', () => scratchGoTo(scratchCurrentPage - 1));
     document.getElementById('scratch-next')!.addEventListener('click', () => scratchGoTo(scratchCurrentPage + 1));
     document.getElementById('scratch-add')!.addEventListener('click', () => {
@@ -406,73 +386,6 @@ const eraserSizes = [
       scratchCurrentPage = scratchTotalPages - 1;
       scratchCtx.clearRect(0, 0, scratchCanvas.width, scratchCanvas.height);
       scratchUpdateCounter();
-    });
-
-    // Scratch pen: first click activates, second click opens color picker
-    scratchPenBtn.addEventListener('click', () => {
-      if (scratchMode === 'pen') {
-        // Show color picker popup near the scratch pen button
-        const btnRect = scratchPenBtn.getBoundingClientRect();
-        toolPopup.style.left = `${btnRect.left}px`;
-        toolPopup.style.top = `${btnRect.bottom + 8}px`;
-        toolPopup.style.bottom = 'auto';
-        toolPopupInner.innerHTML = '';
-        const colors = ['#facc15', '#ef4444', '#22d3ee', '#4ade80', '#ffffff'];
-        const labels = ['노랑', '빨강', '시안', '초록', '흰색'];
-        const container = document.createElement('div');
-        container.className = 'flex gap-1.5';
-        colors.forEach((c, i) => {
-          const btn = document.createElement('button');
-          btn.className = `w-7 h-7 rounded-full border-2 hover:scale-110 transition-transform ${c === scratchColor ? 'border-white scale-110' : 'border-transparent'}`;
-          btn.style.background = c;
-          btn.title = labels[i];
-          btn.addEventListener('click', () => {
-            scratchColor = c;
-            scratchPenDot.style.background = c;
-            toolPopup.classList.add('hidden');
-          });
-          container.appendChild(btn);
-        });
-        toolPopupInner.appendChild(container);
-        toolPopup.classList.remove('hidden');
-      } else {
-        scratchSetMode('pen');
-      }
-    });
-
-    // Scratch eraser: first click activates, second click opens size picker
-    scratchEraserBtn.addEventListener('click', () => {
-      if (scratchMode === 'eraser') {
-        const btnRect = scratchEraserBtn.getBoundingClientRect();
-        toolPopup.style.left = `${btnRect.left - 20}px`;
-        toolPopup.style.top = `${btnRect.bottom + 8}px`;
-        toolPopup.style.bottom = 'auto';
-        toolPopupInner.innerHTML = '';
-        const sizes = [{ size: 15, label: 'S' }, { size: 30, label: 'M' }, { size: 60, label: 'L' }];
-        const container = document.createElement('div');
-        container.className = 'flex items-center gap-2';
-        sizes.forEach((s) => {
-          const btn = document.createElement('button');
-          btn.className = `flex items-center justify-center rounded-lg hover:bg-[#8B0029]/20 transition-colors ${s.size === eraserSize ? 'bg-white/15 ring-1 ring-white/30' : ''}`;
-          btn.style.width = '40px';
-          btn.style.height = '40px';
-          const dot = document.createElement('div');
-          dot.className = 'rounded-full bg-white/40 border border-white/60';
-          const displaySize = Math.min(s.size * 0.5, 28);
-          dot.style.width = `${displaySize}px`;
-          dot.style.height = `${displaySize}px`;
-          btn.appendChild(dot);
-          btn.addEventListener('click', () => {
-            setEraserSize(s.size);
-            toolPopup.classList.add('hidden');
-          });
-          container.appendChild(btn);
-        });
-        toolPopupInner.appendChild(container);
-        toolPopup.classList.remove('hidden');
-      } else {
-        scratchSetMode('eraser');
-      }
     });
 
     // --- Slide navigation ---
@@ -484,6 +397,8 @@ const eraserSizes = [
       slidesEl[current].style.display = 'flex';
       counter.textContent = `${current + 1} / ${total}`;
       restoreDrawing();
+      // Close scratch pad on slide change
+      closeScratchPad();
     }
 
     function next() { goTo(current + 1); }
@@ -494,24 +409,28 @@ const eraserSizes = [
 
     function showPenColors() {
       popupTarget = 'pen';
-      // Position popup above the pen button
       const btnRect = btnPen.getBoundingClientRect();
-      toolPopup.style.left = `${btnRect.left}px`;
-      toolPopup.style.bottom = '52px';
+      const areaRect = mainArea.getBoundingClientRect();
+      toolPopup.style.left = `${btnRect.left - areaRect.left}px`;
+      toolPopup.style.bottom = '8px';
       toolPopup.style.right = 'auto';
+      toolPopup.style.top = 'auto';
 
       toolPopupInner.innerHTML = '';
-      const colors = ['#facc15', '#ef4444', '#22d3ee', '#4ade80', '#ffffff'];
-      const labels = ['노랑', '빨강', '시안', '초록', '흰색'];
+      const colors = ['#ef4444', '#1a1a1a', '#facc15', '#22d3ee', '#4ade80', '#ffffff'];
+      const labels = ['빨강', '검정', '노랑', '시안', '초록', '흰색'];
       const container = document.createElement('div');
       container.className = 'flex gap-1.5';
       colors.forEach((c, i) => {
         const btn = document.createElement('button');
-        btn.className = `w-7 h-7 rounded-full border-2 hover:scale-110 transition-transform ${c === penColor ? 'border-white scale-110' : 'border-transparent'}`;
+        const borderCls = c === '#1a1a1a' ? 'border-gray-400' : (c === '#ffffff' ? 'border-gray-300' : 'border-transparent');
+        btn.className = `w-7 h-7 rounded-full border-2 hover:scale-110 transition-transform ${c === penColor ? 'ring-2 ring-[#8B0029] scale-110' : borderCls}`;
         btn.style.background = c;
         btn.title = labels[i];
         btn.addEventListener('click', () => {
           setPenColor(c);
+          // Also sync scratch color
+          scratchColor = c;
           toolPopup.classList.add('hidden');
         });
         container.appendChild(btn);
@@ -523,9 +442,11 @@ const eraserSizes = [
     function showEraserSizes() {
       popupTarget = 'eraser';
       const btnRect = btnEraser.getBoundingClientRect();
-      toolPopup.style.left = `${btnRect.left - 20}px`;
-      toolPopup.style.bottom = '52px';
+      const areaRect = mainArea.getBoundingClientRect();
+      toolPopup.style.left = `${btnRect.left - areaRect.left - 20}px`;
+      toolPopup.style.bottom = '8px';
       toolPopup.style.right = 'auto';
+      toolPopup.style.top = 'auto';
 
       toolPopupInner.innerHTML = '';
       const sizes = [
@@ -537,12 +458,11 @@ const eraserSizes = [
       container.className = 'flex items-center gap-2';
       sizes.forEach((s) => {
         const btn = document.createElement('button');
-        btn.className = `flex items-center justify-center rounded-lg hover:bg-[#8B0029]/20 transition-colors ${s.size === eraserSize ? 'bg-white/15 ring-1 ring-white/30' : ''}`;
+        btn.className = `flex items-center justify-center rounded-lg hover:bg-[#8B0029]/20 transition-colors ${s.size === eraserSize ? 'bg-[#8B0029]/15 ring-1 ring-[#8B0029]/30' : ''}`;
         btn.style.width = '40px';
         btn.style.height = '40px';
-        // Show a circle representing the eraser size
         const dot = document.createElement('div');
-        dot.className = 'rounded-full bg-white/40 border border-white/60';
+        dot.className = 'rounded-full bg-[#8B0029]/30 border border-[#8B0029]/50';
         const displaySize = Math.min(s.size * 0.5, 28);
         dot.style.width = `${displaySize}px`;
         dot.style.height = `${displaySize}px`;
@@ -562,44 +482,31 @@ const eraserSizes = [
     function setMode(mode: DrawMode) {
       drawMode = mode;
       canvas.style.pointerEvents = mode === 'none' ? 'none' : 'auto';
+      // Scratch pad canvas also follows mode
+      scratchCanvas.style.pointerEvents = (mode === 'none') ? 'none' : 'auto';
 
       if (mode === 'pen') {
         canvas.style.cursor = 'crosshair';
+        scratchCanvas.style.cursor = 'crosshair';
       } else if (mode === 'eraser') {
-        canvas.style.cursor = 'none'; // we show custom cursor
+        canvas.style.cursor = 'none';
+        scratchCanvas.style.cursor = 'none';
       } else {
         canvas.style.cursor = 'default';
+        scratchCanvas.style.cursor = 'default';
       }
 
+      btnCursor.classList.toggle('active', mode === 'none');
       btnPen.classList.toggle('active', mode === 'pen');
       btnEraser.classList.toggle('active', mode === 'eraser');
 
-      // Eraser cursor visibility
-      eraserCursor.classList.toggle('hidden', mode !== 'eraser');
-
-      // Mode indicator
-      if (mode === 'none') {
-        modeIndicator.classList.add('hidden');
-      } else {
-        modeIndicator.classList.remove('hidden');
-        if (mode === 'pen') {
-          modeIcon.style.background = penColor;
-          modeLabel.textContent = '펜';
-        } else {
-          modeIcon.style.background = '#94a3b8';
-          modeLabel.textContent = '지우개';
-        }
-      }
-
+      eraserCursor.classList.add('hidden'); // only show when actively erasing
       toolPopup.classList.add('hidden');
     }
 
     function setPenColor(color: string) {
       penColor = color;
       penColorDot.style.background = color;
-      if (drawMode === 'pen') {
-        modeIcon.style.background = color;
-      }
     }
 
     function setEraserSize(size: number) {
@@ -611,16 +518,12 @@ const eraserSizes = [
     // --- Drawing ---
     function getPos(e: MouseEvent | TouchEvent): [number, number] {
       const rect = canvas.getBoundingClientRect();
-      if ('touches' in e) {
-        return [e.touches[0].clientX - rect.left, e.touches[0].clientY - rect.top];
-      }
+      if ('touches' in e) return [e.touches[0].clientX - rect.left, e.touches[0].clientY - rect.top];
       return [e.clientX - rect.left, e.clientY - rect.top];
     }
 
     function getClientPos(e: MouseEvent | TouchEvent): [number, number] {
-      if ('touches' in e) {
-        return [e.touches[0].clientX, e.touches[0].clientY];
-      }
+      if ('touches' in e) return [e.touches[0].clientX, e.touches[0].clientY];
       return [e.clientX, e.clientY];
     }
 
@@ -630,18 +533,35 @@ const eraserSizes = [
       eraserCursor.style.top = `${clientY - eraserSize / 2}px`;
     }
 
+    // Palm rejection
+    function isStylusTouch(e: MouseEvent | TouchEvent): boolean {
+      if ('touches' in e && e.touches.length > 0) {
+        const touch = e.touches[0] as any;
+        if (touch.touchType !== undefined) return touch.touchType === 'stylus';
+        return true;
+      }
+      return true;
+    }
+
     function startDraw(e: MouseEvent | TouchEvent) {
       if (drawMode === 'none') return;
+      if (!isStylusTouch(e)) return;
       isDrawing = true;
+      onDrawStart();
       [lastX, lastY] = getPos(e);
       const [cx, cy] = getClientPos(e);
-      updateEraserCursor(cx, cy);
+      if (drawMode === 'eraser') {
+        eraserCursor.classList.remove('hidden');
+        updateEraserCursor(cx, cy);
+      }
       e.preventDefault();
     }
 
     function draw(e: MouseEvent | TouchEvent) {
       if (!isDrawing) return;
+      if ('touches' in e && !isStylusTouch(e)) { stopDraw(); return; }
       e.preventDefault();
+      onDrawMove();
       const [x, y] = getPos(e);
       const [cx, cy] = getClientPos(e);
       updateEraserCursor(cx, cy);
@@ -663,7 +583,6 @@ const eraserSizes = [
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       ctx.stroke();
-
       [lastX, lastY] = [x, y];
     }
 
@@ -671,48 +590,87 @@ const eraserSizes = [
       if (isDrawing) {
         isDrawing = false;
         saveDrawing();
+        eraserCursor.classList.add('hidden');
+        onDrawEnd();
       }
     }
 
-    // Track mouse for eraser cursor even when not drawing
-    canvas.addEventListener('mousemove', (e) => {
-      updateEraserCursor(e.clientX, e.clientY);
-    });
+    // Eraser cursor tracks mouse only while drawing (startDraw/draw handle it)
 
     // --- Event listeners ---
     document.addEventListener('keydown', (e) => {
-      // Ignore keyboard when scratch pad is open (except S and Escape)
-      if (scratchOpen && e.key !== 's' && e.key !== 'S' && e.key !== 'Escape') return;
-
       if (e.key === 'ArrowRight' || e.key === ' ') { next(); e.preventDefault(); }
       else if (e.key === 'ArrowLeft') { prev(); e.preventDefault(); }
       else if (e.key === 'f' || e.key === 'F') {
         if (document.fullscreenElement) document.exitFullscreen();
-        else document.documentElement.requestFullscreen();
+        else document.documentElement.requestFullscreen({ navigationUI: 'hide' });
       }
       else if (e.key === 'd' || e.key === 'D') {
-        if (drawMode === 'pen') {
-          showPenColors();
-        } else {
-          setMode('pen');
-        }
+        if (drawMode === 'pen') showPenColors();
+        else setMode('pen');
       }
       else if (e.key === 'e' || e.key === 'E') {
-        if (drawMode === 'eraser') {
-          showEraserSizes();
-        } else {
-          setMode('eraser');
-        }
+        if (drawMode === 'eraser') showEraserSizes();
+        else setMode('eraser');
       }
       else if (e.key === 'c' || e.key === 'C') {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        saveDrawing();
+        if (scratchOpen) {
+          scratchCtx.clearRect(0, 0, scratchCanvas.width, scratchCanvas.height);
+          scratchSavePage();
+        } else {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          saveDrawing();
+        }
       }
       else if (e.key === 's' || e.key === 'S') { toggleScratchPad(); }
+      else if (e.key === 'q' || e.key === 'Q') { setMode('none'); }
       else if (e.key === 'Escape') {
-        if (scratchOpen) { toggleScratchPad(); }
-        else { setMode('none'); }
+        if (scratchOpen) closeScratchPad();
+        else setMode('none');
       }
+    });
+
+    // Double-tap to toggle pen/eraser
+    let lastTapTime = 0;
+    let lastTapStartTime = 0;
+    let drawMovedDistance = 0;
+
+    function togglePenEraser() {
+      if (drawMode === 'pen') setMode('eraser');
+      else if (drawMode === 'eraser') setMode('pen');
+    }
+
+    // Track if touch was a quick tap (not a stroke)
+    function onDrawStart() {
+      lastTapStartTime = Date.now();
+      drawMovedDistance = 0;
+    }
+
+    function onDrawMove() {
+      drawMovedDistance++;
+    }
+
+    function onDrawEnd() {
+      if (drawMode === 'none') return;
+      const tapDuration = Date.now() - lastTapStartTime;
+      // Quick tap: < 200ms and barely moved
+      if (tapDuration < 200 && drawMovedDistance < 5) {
+        const now = Date.now();
+        if (now - lastTapTime < 400) {
+          togglePenEraser();
+          lastTapTime = 0;
+        } else {
+          lastTapTime = now;
+        }
+      }
+    }
+
+    // Mouse double-click fallback
+    canvas.addEventListener('dblclick', (e) => {
+      if (drawMode !== 'none') { e.preventDefault(); togglePenEraser(); }
+    });
+    scratchCanvas.addEventListener('dblclick', (e) => {
+      if (drawMode !== 'none') { e.preventDefault(); togglePenEraser(); }
     });
 
     // Mouse
@@ -721,19 +679,18 @@ const eraserSizes = [
     canvas.addEventListener('mouseup', stopDraw);
     canvas.addEventListener('mouseleave', stopDraw);
 
-    // Touch (iPad)
+    // Touch
     canvas.addEventListener('touchstart', startDraw, { passive: false });
     canvas.addEventListener('touchmove', draw, { passive: false });
     canvas.addEventListener('touchend', stopDraw);
 
-    // Touch swipe for navigation (when not drawing)
+    // Touch swipe navigation (when in click mode)
     let touchStartX = 0;
-    const viewport = document.getElementById('slide-viewport')!;
-    viewport.addEventListener('touchstart', (e) => {
+    mainArea.addEventListener('touchstart', (e) => {
       if (drawMode !== 'none') return;
       touchStartX = e.touches[0].clientX;
     }, { passive: true });
-    viewport.addEventListener('touchend', (e) => {
+    mainArea.addEventListener('touchend', (e) => {
       if (drawMode !== 'none') return;
       const dx = e.changedTouches[0].clientX - touchStartX;
       if (Math.abs(dx) > 60) {
@@ -741,35 +698,36 @@ const eraserSizes = [
       }
     }, { passive: true });
 
+    // Prevent Chrome fullscreen swipe-down-to-exit
+    mainArea.addEventListener('touchmove', (e) => {
+      if (document.fullscreenElement) e.preventDefault();
+    }, { passive: false });
+
     // Buttons
     document.getElementById('btn-prev')!.addEventListener('click', prev);
     document.getElementById('btn-next')!.addEventListener('click', next);
+    btnCursor.addEventListener('click', () => setMode('none'));
 
-    // Pen button: first click activates, second click (while active) opens color picker
     btnPen.addEventListener('click', () => {
-      if (drawMode === 'pen') {
-        showPenColors();
-      } else {
-        setMode('pen');
-      }
+      if (drawMode === 'pen') showPenColors();
+      else setMode('pen');
     });
-
-    // Eraser button: first click activates, second click opens size picker
     btnEraser.addEventListener('click', () => {
-      if (drawMode === 'eraser') {
-        showEraserSizes();
-      } else {
-        setMode('eraser');
-      }
+      if (drawMode === 'eraser') showEraserSizes();
+      else setMode('eraser');
     });
-
     document.getElementById('btn-clear')!.addEventListener('click', () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      saveDrawing();
+      if (scratchOpen) {
+        scratchCtx.clearRect(0, 0, scratchCanvas.width, scratchCanvas.height);
+        scratchSavePage();
+      } else {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        saveDrawing();
+      }
     });
     document.getElementById('btn-fullscreen')!.addEventListener('click', () => {
       if (document.fullscreenElement) document.exitFullscreen();
-      else document.documentElement.requestFullscreen();
+      else document.documentElement.requestFullscreen({ navigationUI: 'hide' });
     });
 
     // Close popup on outside click
@@ -780,7 +738,6 @@ const eraserSizes = [
       }
     });
 
-    // Resize
     window.addEventListener('resize', resizeCanvas);
 
     // --- Thumbnail panel ---
@@ -798,38 +755,28 @@ const eraserSizes = [
         thumb.style.position = 'relative';
         thumb.style.background = '#fff';
 
-        // Mini preview of slide content
         const preview = document.createElement('div');
         preview.style.cssText = 'transform:scale(0.13);transform-origin:top left;width:1080px;height:700px;overflow:hidden;pointer-events:none;position:absolute;top:0;left:0;';
         preview.innerHTML = slide.querySelector('.slide-content')?.innerHTML || '<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:#8B0029;font-size:3rem;">📝</div>';
         thumb.appendChild(preview);
 
-        // Page number overlay
         const num = document.createElement('div');
         num.style.cssText = 'position:absolute;bottom:2px;right:4px;font-size:10px;font-weight:700;color:#8B0029;background:rgba(255,255,255,0.8);padding:0 4px;border-radius:4px;';
         num.textContent = `${i + 1}`;
         thumb.appendChild(num);
 
-        // Current indicator
         if (i === current) {
           const dot = document.createElement('div');
           dot.style.cssText = 'position:absolute;top:2px;left:4px;width:6px;height:6px;border-radius:50%;background:#8B0029;';
           thumb.appendChild(dot);
         }
 
-        thumb.addEventListener('click', () => {
-          goTo(i);
-          toggleThumbs();
-        });
-
+        thumb.addEventListener('click', () => { goTo(i); toggleThumbs(); });
         thumbStrip.appendChild(thumb);
       });
 
-      // Scroll to current
       const currentThumb = thumbStrip.children[current] as HTMLElement;
-      if (currentThumb) {
-        currentThumb.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
-      }
+      if (currentThumb) currentThumb.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
     }
 
     function toggleThumbs() {
@@ -845,7 +792,7 @@ const eraserSizes = [
     resizeCanvas();
     setEraserSize(30);
     counter.textContent = `1 / ${total}`;
-    setPenColor('#facc15');
+    setPenColor('#ef4444');
 
     // KaTeX rendering
     const renderMath = () => {
