@@ -102,6 +102,16 @@ const eraserSizes = [
       </div>
     </div>
 
+    <!-- Thumbnail overview panel -->
+    <div id="thumb-panel" class="fixed inset-0 hidden" style="z-index: 35;">
+      <div class="absolute inset-0 bg-black/40" id="thumb-backdrop"></div>
+      <div class="absolute bottom-14 left-0 right-0 mx-3">
+        <div id="thumb-strip" class="flex gap-2 overflow-x-auto p-3 bg-white/95 backdrop-blur rounded-2xl shadow-2xl border border-[#8B0029]/20">
+          <!-- thumbnails injected by JS -->
+        </div>
+      </div>
+    </div>
+
     <!-- Controls bar -->
     <div id="controls" class="absolute bottom-0 left-0 right-0 z-20">
       <div class="flex items-center justify-between px-3 py-2 mx-3 mb-2 bg-white/90 backdrop-blur rounded-2xl shadow-xl border border-[#8B0029]/30">
@@ -110,7 +120,7 @@ const eraserSizes = [
           <button id="btn-prev" class="ctrl-btn" title="이전 (←)">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
           </button>
-          <span id="slide-counter" class="text-[#8B0029]/50 text-xs font-mono min-w-[3.5rem] text-center"></span>
+          <button id="slide-counter" class="text-[#8B0029]/50 text-xs font-mono min-w-[3.5rem] text-center hover:text-[#8B0029] cursor-pointer" title="슬라이드 목록"></button>
           <button id="btn-next" class="ctrl-btn" title="다음 (→)">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
           </button>
@@ -189,6 +199,13 @@ const eraserSizes = [
   .scratch-color.selected {
     border-color: white;
     transform: scale(1.2);
+  }
+  #thumb-strip::-webkit-scrollbar {
+    height: 6px;
+  }
+  #thumb-strip::-webkit-scrollbar-thumb {
+    background: rgba(139,0,41,0.2);
+    border-radius: 3px;
   }
 </style>
 
@@ -765,6 +782,64 @@ const eraserSizes = [
 
     // Resize
     window.addEventListener('resize', resizeCanvas);
+
+    // --- Thumbnail panel ---
+    const thumbPanel = document.getElementById('thumb-panel')!;
+    const thumbStrip = document.getElementById('thumb-strip')!;
+    let thumbsOpen = false;
+
+    function buildThumbnails() {
+      thumbStrip.innerHTML = '';
+      slidesEl.forEach((slide, i) => {
+        const thumb = document.createElement('button');
+        thumb.className = `thumb-item flex-shrink-0 rounded-lg overflow-hidden border-2 transition-all ${i === current ? 'border-[#8B0029] shadow-md' : 'border-transparent hover:border-[#8B0029]/30'}`;
+        thumb.style.width = '140px';
+        thumb.style.height = '90px';
+        thumb.style.position = 'relative';
+        thumb.style.background = '#fff';
+
+        // Mini preview of slide content
+        const preview = document.createElement('div');
+        preview.style.cssText = 'transform:scale(0.13);transform-origin:top left;width:1080px;height:700px;overflow:hidden;pointer-events:none;position:absolute;top:0;left:0;';
+        preview.innerHTML = slide.querySelector('.slide-content')?.innerHTML || '<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:#8B0029;font-size:3rem;">📝</div>';
+        thumb.appendChild(preview);
+
+        // Page number overlay
+        const num = document.createElement('div');
+        num.style.cssText = 'position:absolute;bottom:2px;right:4px;font-size:10px;font-weight:700;color:#8B0029;background:rgba(255,255,255,0.8);padding:0 4px;border-radius:4px;';
+        num.textContent = `${i + 1}`;
+        thumb.appendChild(num);
+
+        // Current indicator
+        if (i === current) {
+          const dot = document.createElement('div');
+          dot.style.cssText = 'position:absolute;top:2px;left:4px;width:6px;height:6px;border-radius:50%;background:#8B0029;';
+          thumb.appendChild(dot);
+        }
+
+        thumb.addEventListener('click', () => {
+          goTo(i);
+          toggleThumbs();
+        });
+
+        thumbStrip.appendChild(thumb);
+      });
+
+      // Scroll to current
+      const currentThumb = thumbStrip.children[current] as HTMLElement;
+      if (currentThumb) {
+        currentThumb.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      }
+    }
+
+    function toggleThumbs() {
+      thumbsOpen = !thumbsOpen;
+      thumbPanel.classList.toggle('hidden', !thumbsOpen);
+      if (thumbsOpen) buildThumbnails();
+    }
+
+    counter.addEventListener('click', toggleThumbs);
+    document.getElementById('thumb-backdrop')!.addEventListener('click', toggleThumbs);
 
     // Init
     resizeCanvas();
