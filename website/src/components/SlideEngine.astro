@@ -1,0 +1,799 @@
+---
+/**
+ * SlideEngine: 마크다운 기반 프레젠테이션 엔진
+ * - 방향키/스와이프 네비게이션, 풀스크린
+ * - 판서 캔버스 (펜 색상 선택, 지우개 사이즈, 슬라이드별 저장)
+ * - 스크래치 패드 (임시 필기용, 토글)
+ * - KaTeX 수식 렌더링
+ *
+ * 특수 슬라이드: <!-- blank -->, <!-- sim:파일명.html -->
+ */
+interface Props {
+  title: string;
+  slides: string[];
+}
+
+const { title, slides } = Astro.props;
+const base = import.meta.env.BASE_URL;
+
+const penColors = [
+  { color: '#facc15', label: '노랑' },
+  { color: '#ef4444', label: '빨강' },
+  { color: '#22d3ee', label: '시안' },
+  { color: '#4ade80', label: '초록' },
+  { color: '#ffffff', label: '흰색' },
+];
+
+const eraserSizes = [
+  { size: 15, label: 'S' },
+  { size: 30, label: 'M' },
+  { size: 60, label: 'L' },
+];
+---
+
+<div id="slide-app">
+  <div id="slide-viewport" class="fixed inset-0 select-none">
+    <!-- Slides -->
+    <div id="slides-container">
+      {slides.map((html, i) => (
+        <div
+          class="slide absolute inset-0 flex items-center justify-center p-12"
+          data-index={i}
+          style={i === 0 ? '' : 'display:none'}
+        >
+          <div class="slide-content w-full max-w-4xl max-h-full overflow-auto" set:html={html} />
+        </div>
+      ))}
+    </div>
+
+    <!-- Drawing canvas overlay -->
+    <canvas
+      id="draw-canvas"
+      class="absolute inset-0 w-full h-full"
+      style="pointer-events: none; z-index: 10;"
+    ></canvas>
+
+    <!-- Eraser cursor (follows mouse when erasing) -->
+    <div id="eraser-cursor" class="fixed rounded-full border-2 border-[#8B0029]/40 pointer-events-none hidden" style="z-index: 11;"></div>
+
+    <!-- Scratch pad overlay -->
+    <div id="scratch-pad" class="fixed inset-0 hidden flex items-center justify-center" style="z-index: 40;">
+      <div class="absolute inset-0 bg-black/60" id="scratch-backdrop"></div>
+      <div class="relative bg-white rounded-2xl shadow-2xl border border-[#8B0029]/30 overflow-hidden" style="width: 90%; height: 90%;">
+        <canvas id="scratch-canvas" class="absolute inset-0 w-full h-full"></canvas>
+        <!-- Top-left: label + page nav -->
+        <div class="absolute top-3 left-3 flex items-center gap-2 bg-white/90 backdrop-blur rounded-full px-3 py-1.5 border border-[#8B0029]/30">
+          <span class="w-2 h-2 rounded-full bg-[#8B0029]"></span>
+          <span class="text-[#8B0029]/70 text-xs">스크래치</span>
+          <div class="w-px h-4 bg-[#8B0029]/20"></div>
+          <button id="scratch-prev" class="text-[#8B0029]/40 hover:text-white text-xs px-1">◀</button>
+          <span id="scratch-counter" class="text-[#8B0029]/50 text-xs font-mono min-w-[2rem] text-center">1/1</span>
+          <button id="scratch-next" class="text-[#8B0029]/40 hover:text-white text-xs px-1">▶</button>
+          <button id="scratch-add" class="text-[#8B0029]/40 hover:text-white text-xs px-1" title="새 페이지">+</button>
+        </div>
+        <!-- Top-right: tools -->
+        <div class="absolute top-3 right-3 flex items-center gap-0.5 bg-white/90 backdrop-blur rounded-xl px-1 py-1 border border-[#8B0029]/30">
+          <!-- Scratch pen -->
+          <button id="scratch-pen" class="ctrl-btn ctrl-btn-sm active relative" title="펜">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>
+            <span id="scratch-pen-dot" class="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-white" style="background: #facc15;"></span>
+          </button>
+          <!-- Scratch eraser -->
+          <button id="scratch-eraser" class="ctrl-btn ctrl-btn-sm" title="지우개">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 20H7L3 16c-.8-.8-.8-2 0-2.8L14.6 1.6c.8-.8 2-.8 2.8 0L21.4 5.6c.8.8.8 2 0 2.8L12 18"/><path d="M6 12l6 6"/></svg>
+          </button>
+          <div class="w-px h-5 bg-[#8B0029]/20 mx-1"></div>
+          <!-- Clear page -->
+          <button id="scratch-clear" class="ctrl-btn ctrl-btn-sm" title="이 페이지 지우기">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M5 6v14a2 2 0 002 2h10a2 2 0 002-2V6"/></svg>
+          </button>
+          <!-- Close -->
+          <button id="scratch-close" class="ctrl-btn ctrl-btn-sm" title="닫기 (S)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Popup: pen colors / eraser sizes -->
+    <div id="tool-popup" class="absolute z-30 hidden" style="bottom: 52px;">
+      <div id="tool-popup-inner" class="bg-white/90 backdrop-blur rounded-xl px-3 py-2 shadow-xl border border-[#8B0029]/30">
+        <!-- dynamically filled -->
+      </div>
+    </div>
+
+    <!-- Controls bar -->
+    <div id="controls" class="absolute bottom-0 left-0 right-0 z-20">
+      <div class="flex items-center justify-between px-3 py-2 mx-3 mb-2 bg-white/90 backdrop-blur rounded-2xl shadow-xl border border-[#8B0029]/30">
+        <!-- Left: slide nav + drawing tools -->
+        <div class="flex items-center gap-0.5">
+          <button id="btn-prev" class="ctrl-btn" title="이전 (←)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+          </button>
+          <span id="slide-counter" class="text-[#8B0029]/50 text-xs font-mono min-w-[3.5rem] text-center"></span>
+          <button id="btn-next" class="ctrl-btn" title="다음 (→)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+          </button>
+
+          <div class="w-px h-5 bg-[#8B0029]/20 mx-2"></div>
+
+          <!-- Pen -->
+          <button id="btn-pen" class="ctrl-btn relative" title="펜 (D) — 다시 클릭: 색상 선택">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>
+            <span id="pen-color-dot" class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border border-white" style="background: #facc15;"></span>
+          </button>
+
+          <!-- Eraser -->
+          <button id="btn-eraser" class="ctrl-btn" title="지우개 (E) — 다시 클릭: 크기 선택">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 20H7L3 16c-.8-.8-.8-2 0-2.8L14.6 1.6c.8-.8 2-.8 2.8 0L21.4 5.6c.8.8.8 2 0 2.8L12 18"/><path d="M6 12l6 6"/></svg>
+          </button>
+
+          <!-- Clear -->
+          <button id="btn-clear" class="ctrl-btn" title="전체 지우기 (C)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M5 6v14a2 2 0 002 2h10a2 2 0 002-2V6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+          </button>
+
+          <div class="w-px h-5 bg-[#8B0029]/20 mx-1"></div>
+
+          <!-- Scratch pad -->
+          <button id="btn-scratch" class="ctrl-btn" title="스크래치 패드 (S)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 3v18"/></svg>
+          </button>
+
+          <!-- Fullscreen -->
+          <button id="btn-fullscreen" class="ctrl-btn" title="전체화면 (F)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 00-2 2v3"/><path d="M21 8V5a2 2 0 00-2-2h-3"/><path d="M3 16v3a2 2 0 002 2h3"/><path d="M16 21h3a2 2 0 002-2v-3"/></svg>
+          </button>
+        </div>
+
+        <!-- Right: title -->
+        <span class="text-white/40 text-xs hidden sm:block truncate max-w-48">{title}</span>
+      </div>
+    </div>
+
+    <!-- Active mode indicator (top-right) -->
+    <div id="mode-indicator" class="absolute top-4 right-4 z-20 hidden">
+      <div class="flex items-center gap-2 bg-white/90 backdrop-blur rounded-full px-3 py-1.5 shadow-lg border border-[#8B0029]/30">
+        <span id="mode-icon" class="w-2.5 h-2.5 rounded-full"></span>
+        <span id="mode-label" class="text-[#8B0029] text-xs font-medium"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .ctrl-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    color: rgba(139,0,41,0.5);
+    transition: all 0.15s;
+  }
+  .ctrl-btn:hover {
+    color: #8B0029;
+    background: rgba(139,0,41,0.1);
+  }
+  .ctrl-btn.active {
+    color: #8B0029;
+    background: rgba(139,0,41,0.15);
+    box-shadow: inset 0 0 0 1.5px rgba(139,0,41,0.3);
+  }
+  .ctrl-btn-sm {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+  }
+  .scratch-color.selected {
+    border-color: white;
+    transform: scale(1.2);
+  }
+</style>
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const slidesEl = document.querySelectorAll<HTMLDivElement>('.slide');
+    const counter = document.getElementById('slide-counter')!;
+    const canvas = document.getElementById('draw-canvas') as HTMLCanvasElement;
+    const ctx = canvas.getContext('2d')!;
+    const total = slidesEl.length;
+    let current = 0;
+
+    // --- Drawing state ---
+    type DrawMode = 'none' | 'pen' | 'eraser';
+    let drawMode: DrawMode = 'none';
+    let penColor = '#facc15';
+    let eraserSize = 30;
+    const drawingData: Map<number, ImageData> = new Map();
+    let isDrawing = false;
+    let lastX = 0;
+    let lastY = 0;
+
+    // --- UI refs ---
+    const btnPen = document.getElementById('btn-pen')!;
+    const btnEraser = document.getElementById('btn-eraser')!;
+    const penColorDot = document.getElementById('pen-color-dot')!;
+    const modeIndicator = document.getElementById('mode-indicator')!;
+    const modeIcon = document.getElementById('mode-icon')!;
+    const modeLabel = document.getElementById('mode-label')!;
+    const toolPopup = document.getElementById('tool-popup')!;
+    const toolPopupInner = document.getElementById('tool-popup-inner')!;
+    const eraserCursor = document.getElementById('eraser-cursor')!;
+
+    // --- Canvas setup ---
+    function resizeCanvas() {
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = canvas.clientWidth * dpr;
+      canvas.height = canvas.clientHeight * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      restoreDrawing();
+    }
+
+    function saveDrawing() {
+      drawingData.set(current, ctx.getImageData(0, 0, canvas.width, canvas.height));
+    }
+
+    function restoreDrawing() {
+      const data = drawingData.get(current);
+      if (data && data.width === canvas.width && data.height === canvas.height) {
+        ctx.putImageData(data, 0, 0);
+      } else {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+    }
+
+    // --- Fullscreen: save/restore on change ---
+    document.addEventListener('fullscreenchange', () => {
+      setTimeout(() => resizeCanvas(), 100);
+    });
+
+    // --- Scratch pad ---
+    const scratchPad = document.getElementById('scratch-pad')!;
+    const scratchCanvas = document.getElementById('scratch-canvas') as HTMLCanvasElement;
+    const scratchCtx = scratchCanvas.getContext('2d')!;
+    const scratchCounter = document.getElementById('scratch-counter')!;
+    let scratchOpen = false;
+
+    // Multi-page state
+    const scratchPages: Map<number, ImageData> = new Map();
+    let scratchCurrentPage = 0;
+    let scratchTotalPages = 1;
+
+    // Scratch drawing mode: pen or eraser
+    type ScratchMode = 'pen' | 'eraser';
+    let scratchMode: ScratchMode = 'pen';
+    let scratchColor = '#facc15';
+
+    const scratchPenBtn = document.getElementById('scratch-pen')!;
+    const scratchEraserBtn = document.getElementById('scratch-eraser')!;
+    const scratchPenDot = document.getElementById('scratch-pen-dot')!;
+
+    function resizeScratchCanvas() {
+      const dpr = window.devicePixelRatio || 1;
+      scratchCanvas.width = scratchCanvas.clientWidth * dpr;
+      scratchCanvas.height = scratchCanvas.clientHeight * dpr;
+      scratchCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      scratchRestorePage();
+    }
+
+    function scratchSavePage() {
+      scratchPages.set(scratchCurrentPage, scratchCtx.getImageData(0, 0, scratchCanvas.width, scratchCanvas.height));
+    }
+
+    function scratchRestorePage() {
+      const data = scratchPages.get(scratchCurrentPage);
+      if (data && data.width === scratchCanvas.width && data.height === scratchCanvas.height) {
+        scratchCtx.putImageData(data, 0, 0);
+      } else {
+        scratchCtx.clearRect(0, 0, scratchCanvas.width, scratchCanvas.height);
+      }
+    }
+
+    function scratchUpdateCounter() {
+      scratchCounter.textContent = `${scratchCurrentPage + 1}/${scratchTotalPages}`;
+    }
+
+    function scratchGoTo(page: number) {
+      if (page < 0 || page >= scratchTotalPages) return;
+      scratchSavePage();
+      scratchCurrentPage = page;
+      scratchRestorePage();
+      scratchUpdateCounter();
+    }
+
+    function scratchSetMode(mode: ScratchMode) {
+      scratchMode = mode;
+      scratchPenBtn.classList.toggle('active', mode === 'pen');
+      scratchEraserBtn.classList.toggle('active', mode === 'eraser');
+      scratchCanvas.style.cursor = mode === 'pen' ? 'crosshair' : 'cell';
+    }
+
+    function toggleScratchPad() {
+      scratchOpen = !scratchOpen;
+      scratchPad.classList.toggle('hidden', !scratchOpen);
+      document.getElementById('btn-scratch')!.classList.toggle('active', scratchOpen);
+      if (scratchOpen) {
+        resizeScratchCanvas();
+        scratchSetMode('pen');
+        scratchUpdateCounter();
+      }
+    }
+
+    // Scratch drawing
+    let scratchDrawing = false;
+    let scratchLastX = 0;
+    let scratchLastY = 0;
+
+    function scratchGetPos(e: MouseEvent | TouchEvent): [number, number] {
+      const rect = scratchCanvas.getBoundingClientRect();
+      if ('touches' in e) return [e.touches[0].clientX - rect.left, e.touches[0].clientY - rect.top];
+      return [e.clientX - rect.left, e.clientY - rect.top];
+    }
+
+    function scratchStart(e: MouseEvent | TouchEvent) {
+      scratchDrawing = true;
+      [scratchLastX, scratchLastY] = scratchGetPos(e);
+      e.preventDefault();
+    }
+    function scratchMove(e: MouseEvent | TouchEvent) {
+      if (!scratchDrawing) return;
+      e.preventDefault();
+      const [x, y] = scratchGetPos(e);
+      scratchCtx.beginPath();
+      scratchCtx.moveTo(scratchLastX, scratchLastY);
+      scratchCtx.lineTo(x, y);
+      if (scratchMode === 'pen') {
+        scratchCtx.strokeStyle = scratchColor;
+        scratchCtx.lineWidth = 3;
+        scratchCtx.globalCompositeOperation = 'source-over';
+      } else {
+        scratchCtx.strokeStyle = 'rgba(0,0,0,1)';
+        scratchCtx.lineWidth = eraserSize;
+        scratchCtx.globalCompositeOperation = 'destination-out';
+      }
+      scratchCtx.lineCap = 'round';
+      scratchCtx.lineJoin = 'round';
+      scratchCtx.stroke();
+      [scratchLastX, scratchLastY] = [x, y];
+    }
+    function scratchStop() {
+      if (scratchDrawing) {
+        scratchDrawing = false;
+        scratchSavePage();
+      }
+    }
+
+    scratchCanvas.addEventListener('mousedown', scratchStart);
+    scratchCanvas.addEventListener('mousemove', scratchMove);
+    scratchCanvas.addEventListener('mouseup', scratchStop);
+    scratchCanvas.addEventListener('mouseleave', scratchStop);
+    scratchCanvas.addEventListener('touchstart', scratchStart, { passive: false });
+    scratchCanvas.addEventListener('touchmove', scratchMove, { passive: false });
+    scratchCanvas.addEventListener('touchend', scratchStop);
+
+    // Scratch pad buttons
+    document.getElementById('btn-scratch')!.addEventListener('click', toggleScratchPad);
+    document.getElementById('scratch-close')!.addEventListener('click', toggleScratchPad);
+    document.getElementById('scratch-backdrop')!.addEventListener('click', toggleScratchPad);
+    document.getElementById('scratch-clear')!.addEventListener('click', () => {
+      scratchCtx.clearRect(0, 0, scratchCanvas.width, scratchCanvas.height);
+      scratchSavePage();
+    });
+    document.getElementById('scratch-prev')!.addEventListener('click', () => scratchGoTo(scratchCurrentPage - 1));
+    document.getElementById('scratch-next')!.addEventListener('click', () => scratchGoTo(scratchCurrentPage + 1));
+    document.getElementById('scratch-add')!.addEventListener('click', () => {
+      scratchSavePage();
+      scratchTotalPages++;
+      scratchCurrentPage = scratchTotalPages - 1;
+      scratchCtx.clearRect(0, 0, scratchCanvas.width, scratchCanvas.height);
+      scratchUpdateCounter();
+    });
+
+    // Scratch pen: first click activates, second click opens color picker
+    scratchPenBtn.addEventListener('click', () => {
+      if (scratchMode === 'pen') {
+        // Show color picker popup near the scratch pen button
+        const btnRect = scratchPenBtn.getBoundingClientRect();
+        toolPopup.style.left = `${btnRect.left}px`;
+        toolPopup.style.top = `${btnRect.bottom + 8}px`;
+        toolPopup.style.bottom = 'auto';
+        toolPopupInner.innerHTML = '';
+        const colors = ['#facc15', '#ef4444', '#22d3ee', '#4ade80', '#ffffff'];
+        const labels = ['노랑', '빨강', '시안', '초록', '흰색'];
+        const container = document.createElement('div');
+        container.className = 'flex gap-1.5';
+        colors.forEach((c, i) => {
+          const btn = document.createElement('button');
+          btn.className = `w-7 h-7 rounded-full border-2 hover:scale-110 transition-transform ${c === scratchColor ? 'border-white scale-110' : 'border-transparent'}`;
+          btn.style.background = c;
+          btn.title = labels[i];
+          btn.addEventListener('click', () => {
+            scratchColor = c;
+            scratchPenDot.style.background = c;
+            toolPopup.classList.add('hidden');
+          });
+          container.appendChild(btn);
+        });
+        toolPopupInner.appendChild(container);
+        toolPopup.classList.remove('hidden');
+      } else {
+        scratchSetMode('pen');
+      }
+    });
+
+    // Scratch eraser: first click activates, second click opens size picker
+    scratchEraserBtn.addEventListener('click', () => {
+      if (scratchMode === 'eraser') {
+        const btnRect = scratchEraserBtn.getBoundingClientRect();
+        toolPopup.style.left = `${btnRect.left - 20}px`;
+        toolPopup.style.top = `${btnRect.bottom + 8}px`;
+        toolPopup.style.bottom = 'auto';
+        toolPopupInner.innerHTML = '';
+        const sizes = [{ size: 15, label: 'S' }, { size: 30, label: 'M' }, { size: 60, label: 'L' }];
+        const container = document.createElement('div');
+        container.className = 'flex items-center gap-2';
+        sizes.forEach((s) => {
+          const btn = document.createElement('button');
+          btn.className = `flex items-center justify-center rounded-lg hover:bg-[#8B0029]/20 transition-colors ${s.size === eraserSize ? 'bg-white/15 ring-1 ring-white/30' : ''}`;
+          btn.style.width = '40px';
+          btn.style.height = '40px';
+          const dot = document.createElement('div');
+          dot.className = 'rounded-full bg-white/40 border border-white/60';
+          const displaySize = Math.min(s.size * 0.5, 28);
+          dot.style.width = `${displaySize}px`;
+          dot.style.height = `${displaySize}px`;
+          btn.appendChild(dot);
+          btn.addEventListener('click', () => {
+            setEraserSize(s.size);
+            toolPopup.classList.add('hidden');
+          });
+          container.appendChild(btn);
+        });
+        toolPopupInner.appendChild(container);
+        toolPopup.classList.remove('hidden');
+      } else {
+        scratchSetMode('eraser');
+      }
+    });
+
+    // --- Slide navigation ---
+    function goTo(index: number) {
+      if (index < 0 || index >= total) return;
+      saveDrawing();
+      slidesEl[current].style.display = 'none';
+      current = index;
+      slidesEl[current].style.display = 'flex';
+      counter.textContent = `${current + 1} / ${total}`;
+      restoreDrawing();
+    }
+
+    function next() { goTo(current + 1); }
+    function prev() { goTo(current - 1); }
+
+    // --- Tool popup ---
+    let popupTarget: 'pen' | 'eraser' | null = null;
+
+    function showPenColors() {
+      popupTarget = 'pen';
+      // Position popup above the pen button
+      const btnRect = btnPen.getBoundingClientRect();
+      toolPopup.style.left = `${btnRect.left}px`;
+      toolPopup.style.bottom = '52px';
+      toolPopup.style.right = 'auto';
+
+      toolPopupInner.innerHTML = '';
+      const colors = ['#facc15', '#ef4444', '#22d3ee', '#4ade80', '#ffffff'];
+      const labels = ['노랑', '빨강', '시안', '초록', '흰색'];
+      const container = document.createElement('div');
+      container.className = 'flex gap-1.5';
+      colors.forEach((c, i) => {
+        const btn = document.createElement('button');
+        btn.className = `w-7 h-7 rounded-full border-2 hover:scale-110 transition-transform ${c === penColor ? 'border-white scale-110' : 'border-transparent'}`;
+        btn.style.background = c;
+        btn.title = labels[i];
+        btn.addEventListener('click', () => {
+          setPenColor(c);
+          toolPopup.classList.add('hidden');
+        });
+        container.appendChild(btn);
+      });
+      toolPopupInner.appendChild(container);
+      toolPopup.classList.remove('hidden');
+    }
+
+    function showEraserSizes() {
+      popupTarget = 'eraser';
+      const btnRect = btnEraser.getBoundingClientRect();
+      toolPopup.style.left = `${btnRect.left - 20}px`;
+      toolPopup.style.bottom = '52px';
+      toolPopup.style.right = 'auto';
+
+      toolPopupInner.innerHTML = '';
+      const sizes = [
+        { size: 15, label: 'S' },
+        { size: 30, label: 'M' },
+        { size: 60, label: 'L' },
+      ];
+      const container = document.createElement('div');
+      container.className = 'flex items-center gap-2';
+      sizes.forEach((s) => {
+        const btn = document.createElement('button');
+        btn.className = `flex items-center justify-center rounded-lg hover:bg-[#8B0029]/20 transition-colors ${s.size === eraserSize ? 'bg-white/15 ring-1 ring-white/30' : ''}`;
+        btn.style.width = '40px';
+        btn.style.height = '40px';
+        // Show a circle representing the eraser size
+        const dot = document.createElement('div');
+        dot.className = 'rounded-full bg-white/40 border border-white/60';
+        const displaySize = Math.min(s.size * 0.5, 28);
+        dot.style.width = `${displaySize}px`;
+        dot.style.height = `${displaySize}px`;
+        btn.appendChild(dot);
+        btn.title = s.label;
+        btn.addEventListener('click', () => {
+          setEraserSize(s.size);
+          toolPopup.classList.add('hidden');
+        });
+        container.appendChild(btn);
+      });
+      toolPopupInner.appendChild(container);
+      toolPopup.classList.remove('hidden');
+    }
+
+    // --- Drawing mode ---
+    function setMode(mode: DrawMode) {
+      drawMode = mode;
+      canvas.style.pointerEvents = mode === 'none' ? 'none' : 'auto';
+
+      if (mode === 'pen') {
+        canvas.style.cursor = 'crosshair';
+      } else if (mode === 'eraser') {
+        canvas.style.cursor = 'none'; // we show custom cursor
+      } else {
+        canvas.style.cursor = 'default';
+      }
+
+      btnPen.classList.toggle('active', mode === 'pen');
+      btnEraser.classList.toggle('active', mode === 'eraser');
+
+      // Eraser cursor visibility
+      eraserCursor.classList.toggle('hidden', mode !== 'eraser');
+
+      // Mode indicator
+      if (mode === 'none') {
+        modeIndicator.classList.add('hidden');
+      } else {
+        modeIndicator.classList.remove('hidden');
+        if (mode === 'pen') {
+          modeIcon.style.background = penColor;
+          modeLabel.textContent = '펜';
+        } else {
+          modeIcon.style.background = '#94a3b8';
+          modeLabel.textContent = '지우개';
+        }
+      }
+
+      toolPopup.classList.add('hidden');
+    }
+
+    function setPenColor(color: string) {
+      penColor = color;
+      penColorDot.style.background = color;
+      if (drawMode === 'pen') {
+        modeIcon.style.background = color;
+      }
+    }
+
+    function setEraserSize(size: number) {
+      eraserSize = size;
+      eraserCursor.style.width = `${size}px`;
+      eraserCursor.style.height = `${size}px`;
+    }
+
+    // --- Drawing ---
+    function getPos(e: MouseEvent | TouchEvent): [number, number] {
+      const rect = canvas.getBoundingClientRect();
+      if ('touches' in e) {
+        return [e.touches[0].clientX - rect.left, e.touches[0].clientY - rect.top];
+      }
+      return [e.clientX - rect.left, e.clientY - rect.top];
+    }
+
+    function getClientPos(e: MouseEvent | TouchEvent): [number, number] {
+      if ('touches' in e) {
+        return [e.touches[0].clientX, e.touches[0].clientY];
+      }
+      return [e.clientX, e.clientY];
+    }
+
+    function updateEraserCursor(clientX: number, clientY: number) {
+      if (drawMode !== 'eraser') return;
+      eraserCursor.style.left = `${clientX - eraserSize / 2}px`;
+      eraserCursor.style.top = `${clientY - eraserSize / 2}px`;
+    }
+
+    function startDraw(e: MouseEvent | TouchEvent) {
+      if (drawMode === 'none') return;
+      isDrawing = true;
+      [lastX, lastY] = getPos(e);
+      const [cx, cy] = getClientPos(e);
+      updateEraserCursor(cx, cy);
+      e.preventDefault();
+    }
+
+    function draw(e: MouseEvent | TouchEvent) {
+      if (!isDrawing) return;
+      e.preventDefault();
+      const [x, y] = getPos(e);
+      const [cx, cy] = getClientPos(e);
+      updateEraserCursor(cx, cy);
+
+      ctx.beginPath();
+      ctx.moveTo(lastX, lastY);
+      ctx.lineTo(x, y);
+
+      if (drawMode === 'pen') {
+        ctx.strokeStyle = penColor;
+        ctx.lineWidth = 3;
+        ctx.globalCompositeOperation = 'source-over';
+      } else if (drawMode === 'eraser') {
+        ctx.strokeStyle = 'rgba(0,0,0,1)';
+        ctx.lineWidth = eraserSize;
+        ctx.globalCompositeOperation = 'destination-out';
+      }
+
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+
+      [lastX, lastY] = [x, y];
+    }
+
+    function stopDraw() {
+      if (isDrawing) {
+        isDrawing = false;
+        saveDrawing();
+      }
+    }
+
+    // Track mouse for eraser cursor even when not drawing
+    canvas.addEventListener('mousemove', (e) => {
+      updateEraserCursor(e.clientX, e.clientY);
+    });
+
+    // --- Event listeners ---
+    document.addEventListener('keydown', (e) => {
+      // Ignore keyboard when scratch pad is open (except S and Escape)
+      if (scratchOpen && e.key !== 's' && e.key !== 'S' && e.key !== 'Escape') return;
+
+      if (e.key === 'ArrowRight' || e.key === ' ') { next(); e.preventDefault(); }
+      else if (e.key === 'ArrowLeft') { prev(); e.preventDefault(); }
+      else if (e.key === 'f' || e.key === 'F') {
+        if (document.fullscreenElement) document.exitFullscreen();
+        else document.documentElement.requestFullscreen();
+      }
+      else if (e.key === 'd' || e.key === 'D') {
+        if (drawMode === 'pen') {
+          showPenColors();
+        } else {
+          setMode('pen');
+        }
+      }
+      else if (e.key === 'e' || e.key === 'E') {
+        if (drawMode === 'eraser') {
+          showEraserSizes();
+        } else {
+          setMode('eraser');
+        }
+      }
+      else if (e.key === 'c' || e.key === 'C') {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        saveDrawing();
+      }
+      else if (e.key === 's' || e.key === 'S') { toggleScratchPad(); }
+      else if (e.key === 'Escape') {
+        if (scratchOpen) { toggleScratchPad(); }
+        else { setMode('none'); }
+      }
+    });
+
+    // Mouse
+    canvas.addEventListener('mousedown', startDraw);
+    canvas.addEventListener('mousemove', draw);
+    canvas.addEventListener('mouseup', stopDraw);
+    canvas.addEventListener('mouseleave', stopDraw);
+
+    // Touch (iPad)
+    canvas.addEventListener('touchstart', startDraw, { passive: false });
+    canvas.addEventListener('touchmove', draw, { passive: false });
+    canvas.addEventListener('touchend', stopDraw);
+
+    // Touch swipe for navigation (when not drawing)
+    let touchStartX = 0;
+    const viewport = document.getElementById('slide-viewport')!;
+    viewport.addEventListener('touchstart', (e) => {
+      if (drawMode !== 'none') return;
+      touchStartX = e.touches[0].clientX;
+    }, { passive: true });
+    viewport.addEventListener('touchend', (e) => {
+      if (drawMode !== 'none') return;
+      const dx = e.changedTouches[0].clientX - touchStartX;
+      if (Math.abs(dx) > 60) {
+        if (dx < 0) next(); else prev();
+      }
+    }, { passive: true });
+
+    // Buttons
+    document.getElementById('btn-prev')!.addEventListener('click', prev);
+    document.getElementById('btn-next')!.addEventListener('click', next);
+
+    // Pen button: first click activates, second click (while active) opens color picker
+    btnPen.addEventListener('click', () => {
+      if (drawMode === 'pen') {
+        showPenColors();
+      } else {
+        setMode('pen');
+      }
+    });
+
+    // Eraser button: first click activates, second click opens size picker
+    btnEraser.addEventListener('click', () => {
+      if (drawMode === 'eraser') {
+        showEraserSizes();
+      } else {
+        setMode('eraser');
+      }
+    });
+
+    document.getElementById('btn-clear')!.addEventListener('click', () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      saveDrawing();
+    });
+    document.getElementById('btn-fullscreen')!.addEventListener('click', () => {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else document.documentElement.requestFullscreen();
+    });
+
+    // Close popup on outside click
+    document.addEventListener('click', (e) => {
+      const target = e.target as Node;
+      if (!toolPopup.contains(target) && target !== btnPen && !btnPen.contains(target) && target !== btnEraser && !btnEraser.contains(target)) {
+        toolPopup.classList.add('hidden');
+      }
+    });
+
+    // Resize
+    window.addEventListener('resize', resizeCanvas);
+
+    // Init
+    resizeCanvas();
+    setEraserSize(30);
+    counter.textContent = `1 / ${total}`;
+    setPenColor('#facc15');
+
+    // KaTeX rendering
+    const renderMath = () => {
+      if (typeof (window as any).katex === 'undefined') return;
+      const katex = (window as any).katex;
+
+      document.querySelectorAll('.slide-content').forEach((el) => {
+        el.innerHTML = el.innerHTML.replace(/\$\$([\s\S]*?)\$\$/g, (_: string, tex: string) => {
+          try {
+            return katex.renderToString(tex.trim(), { displayMode: true, throwOnError: false });
+          } catch { return tex; }
+        });
+        el.innerHTML = el.innerHTML.replace(/\$([^\$\n]+?)\$/g, (_: string, tex: string) => {
+          try {
+            return katex.renderToString(tex.trim(), { displayMode: false, throwOnError: false });
+          } catch { return tex; }
+        });
+      });
+    };
+
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js';
+    script.onload = renderMath;
+    document.head.appendChild(script);
+  });
+</script>

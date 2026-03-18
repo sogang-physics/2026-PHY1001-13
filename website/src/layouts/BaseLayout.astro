@@ -1,0 +1,49 @@
+---
+interface Props {
+  title: string;
+  description?: string;
+}
+
+const { title, description = '서강대학교 일반물리 I (PHY1001) 강의 사이트' } = Astro.props;
+const base = import.meta.env.BASE_URL;
+---
+
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content={description} />
+    <title>{title} | 일반물리 I</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css"
+    />
+  </head>
+  <body class="min-h-screen bg-white text-gray-900">
+    <nav class="bg-[var(--sogang-red)] text-white shadow-lg">
+      <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+        <a href={`${base}`} class="text-lg font-bold hover:opacity-90">
+          일반물리 I
+        </a>
+        <div class="flex gap-6 text-sm">
+          <a href={`${base}lectures/`} class="hover:opacity-80">강의</a>
+          <a href={`${base}homework/`} class="hover:opacity-80">숙제</a>
+          <a href={`${base}simulations/`} class="hover:opacity-80">시뮬레이션</a>
+        </div>
+      </div>
+    </nav>
+
+    <main>
+      <slot />
+    </main>
+
+    <footer class="mt-16 py-6 bg-[#f9f2f4] text-center text-sm text-[var(--sogang-red)]/60">
+      <p>서강대학교 물리학과 · 일반물리 I (PHY1001) · 2026년 1학기</p>
+    </footer>
+  </body>
+</html>
+
+<style is:global>
+  @import '../styles/global.css';
+</style>

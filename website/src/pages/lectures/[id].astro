@@ -1,0 +1,57 @@
+---
+import SlideLayout from '../../layouts/SlideLayout.astro';
+import SlideEngine from '../../components/SlideEngine.astro';
+import { getCollection } from 'astro:content';
+import { marked } from 'marked';
+
+export async function getStaticPaths() {
+  const lectures = await getCollection('lectures');
+  return lectures.map((lecture) => ({
+    params: { id: lecture.id },
+    props: { lecture },
+  }));
+}
+
+const { lecture } = Astro.props;
+const base = import.meta.env.BASE_URL;
+
+// Split raw markdown by --- slide separators
+// We need the raw body, not rendered HTML
+const rawContent = lecture.body || '';
+
+// Split on lines that are just "---" (slide separators)
+const slideTexts = rawContent
+  .split(/\n---\n/)
+  .map((s: string) => s.trim())
+  .filter((s: string) => s.length > 0);
+
+// Render each slide's markdown to HTML
+const slides = await Promise.all(
+  slideTexts.map(async (md: string) => {
+    // Check for special directives
+    const blankMatch = md.match(/<!--\s*blank\s*-->/);
+    if (blankMatch) {
+      const label = md.replace(/<!--\s*blank\s*-->/, '').trim();
+      return `<div class="flex items-center justify-center h-full w-full">
+        <p class="text-white/20 text-2xl">${label || '판서'}</p>
+      </div>`;
+    }
+
+    const simMatch = md.match(/<!--\s*sim:\s*(\S+)\s*-->/);
+    if (simMatch) {
+      const file = simMatch[1];
+      const caption = md.replace(/<!--\s*sim:\s*\S+\s*-->/, '').trim();
+      return `<div class="w-full h-full flex flex-col items-center">
+        ${caption ? `<h2 class="text-xl font-bold mb-2 text-[#93c5fd]">${caption}</h2>` : ''}
+        <iframe src="${base}simulations/${file}" class="w-full flex-1 rounded-lg border border-white/10" style="min-height:70vh"></iframe>
+      </div>`;
+    }
+
+    return String(await marked.parse(md));
+  })
+);
+---
+
+<SlideLayout title={lecture.data.title}>
+  <SlideEngine title={lecture.data.title} slides={slides} />
+</SlideLayout>
