@@ -156,7 +156,7 @@
 
 ```bash
 cd website && npm run build
-cp -r dist/* ../gh-pages/static/2026-PHY1001-13/
+cp -r dist/* ../gh-pages/static/PHY1001/
 cd ../gh-pages && git add -A && git commit -m "Update" && git push
 ```
 
