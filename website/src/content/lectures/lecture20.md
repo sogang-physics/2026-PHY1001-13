@@ -14,7 +14,7 @@ Entropy and the Second Law of Thermodynamics
 ## 이번 장에서 배울 내용
 
 - **비가역 과정(irreversible process)** 과 시간의 방향
-- **엔트로피(entropy)** 의 정의: $\Delta S = \int \frac{dQ}{T}$
+- **엔트로피(entropy)** 의 정의: $\Delta S = \int \frac{\delta Q_\text{rev}}{T}$
 - **이상기체의 엔트로피 변화** 공식
 - **열역학 제2법칙** : $\Delta S \geq 0$
 - **열기관(heat engine)** 과 **카르노 기관(Carnot engine)**
@@ -43,9 +43,9 @@ Entropy and the Second Law of Thermodynamics
 
 계가 초기 상태 $i$에서 최종 상태 $f$로 변할 때, **엔트로피 변화(change in entropy)** 는:
 
-$$\Delta S = S_f - S_i = \int_i^f \frac{dQ}{T}$$
+$$\Delta S = S_f - S_i = \int_i^f \frac{\delta Q_\text{rev}}{T}$$
 
-- $dQ$: 과정 중에 계에 전달되는 미소 열량
+- $\delta Q_\text{rev}$: 같은 초기·최종 상태를 잇는 가역 과정에서 계에 전달되는 미소 열량
 - $T$: 그 순간 계의 온도 (켈빈)
 - 단위: J/K
 
@@ -55,12 +55,12 @@ $$\Delta S = S_f - S_i = \int_i^f \frac{dQ}{T}$$
 
 ### 엔트로피 공준 (Entropy Postulate)
 
-> **닫힌계에서 비가역 과정이 일어나면, 계의 엔트로피 $S$는 항상 증가한다. 절대 감소하지 않는다.**
+> **고립계에서 비가역 과정이 일어나면, 계의 엔트로피 $S$는 증가한다. 가역 과정에서는 일정하다.**
 
 비가역 과정의 엔트로피 변화를 구하려면:
 
 1. 같은 초기 상태 $i$와 최종 상태 $f$를 연결하는 **가역 과정** 을 찾는다
-2. 그 가역 과정에 대해 $\int_i^f dQ/T$를 계산한다
+2. 그 가역 과정에 대해 $\int_i^f \delta Q_\text{rev}/T$를 계산한다
 3. 엔트로피는 상태 함수이므로, 비가역 과정의 $\Delta S$와 같다
 
 ---
@@ -122,13 +122,13 @@ $$\Delta S \approx \frac{Q}{T_\text{avg}}$$
 - 계의 현재 상태에만 의존한다
 - 그 상태에 도달한 경로에 무관하다
 
-증명: 열역학 제1법칙 $dE_\text{int} = dQ - dW$에서 이상기체에 대해:
+증명: 열역학 제1법칙 $dE_\text{int} = \delta Q - \delta W$에서 이상기체에 대해:
 
-$$dQ = p\,dV + nC_V\,dT$$
+$$\delta Q_\text{rev} = p\,dV + nC_V\,dT$$
 
 $p = nRT/V$를 대입하고 $T$로 나누면:
 
-$$\frac{dQ}{T} = nR\frac{dV}{V} + nC_V\frac{dT}{T}$$
+$$\frac{\delta Q_\text{rev}}{T} = nR\frac{dV}{V} + nC_V\frac{dT}{T}$$
 
 양변을 적분하면:
 
@@ -175,7 +175,7 @@ $$\Delta S = \Delta S_L + \Delta S_R = -35.86 + 38.23 = +2.4 \text{ J/K} > 0 \;\
 
 ### 제2법칙의 엔트로피 표현
 
-닫힌계에서 과정이 일어나면:
+고립계에서 과정이 일어나면:
 
 $$\boxed{\Delta S \geq 0}$$
 
@@ -528,10 +528,10 @@ $(50,50)$ 배치에 해당하는 $\sim 10^{29}$개의 미시상태를 1나노초
 
 | 개념 | 공식 |
 |---|---|
-| 엔트로피 변화 (정의) | $\Delta S = \int_i^f \frac{dQ}{T}$ |
+| 엔트로피 변화 (정의) | $\Delta S = \int_i^f \frac{\delta Q_\text{rev}}{T}$ |
 | 등온 과정 | $\Delta S = Q/T$ |
 | 이상기체 | $\Delta S = nR \ln \frac{V_f}{V_i} + nC_V \ln \frac{T_f}{T_i}$ |
-| 열역학 제2법칙 | $\Delta S \geq 0$ (닫힌계) |
+| 열역학 제2법칙 | $\Delta S \geq 0$ (고립계) |
 
 ---
 

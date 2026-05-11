@@ -89,13 +89,13 @@ $$T = (273.16 \text{ K})\left(\lim_{\text{gas}\to 0}\frac{p}{p_3}\right)$$
 
 **켈빈 ↔ 섭씨:**
 
-$$T_C = T - 273.15°$$
+$$T_C = T - 273.15$$
 
 여기서 $T$는 켈빈 온도이다. 켈빈과 섭씨의 **눈금 크기** 는 같다: $\Delta T(\text{K}) = \Delta T(°\text{C})$.
 
 **섭씨 ↔ 화씨:**
 
-$$T_F = \frac{9}{5}T_C + 32°$$
+$$T_F = \frac{9}{5}T_C + 32$$
 
 | 온도 | K | °C | °F |
 |---|---|---|---|
@@ -353,7 +353,7 @@ $$\boxed{\Delta E_\text{int} = E_{\text{int},f} - E_{\text{int},i} = Q - W}$$
 
 미분 형태:
 
-$$dE_\text{int} = dQ - dW$$
+$$dE_\text{int} = \delta Q - \delta W$$
 
 이것은 에너지 보존 법칙의 열역학적 표현이다.
 

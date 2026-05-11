@@ -161,6 +161,8 @@ $$x_0 = x_m\cos\phi, \quad v_0 = -\omega x_m\sin\phi$$
 
 $$\tan\phi = -\frac{v_0}{\omega x_0}$$
 
+단, $\tan^{-1}$만 쓰면 사분면 정보가 빠질 수 있다. 실제 계산에서는 $x_0 = x_m\cos\phi$, $v_0 = -\omega x_m\sin\phi$를 함께 만족하는 사분면을 골라야 한다.
+
 진폭은:
 
 $$x_m = \sqrt{x_0^2 + \left(\frac{v_0}{\omega}\right)^2}$$
